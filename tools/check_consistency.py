@@ -6,7 +6,7 @@ contradicted by another. That has already happened once: the scriptability claim
 fixed in PLAN.md and BRIEF.md while the deck still shipped the old version, because the
 deck had been generated from BRIEF.md before the fix.
 
-Run before every commit:  python3 scripts/check_consistency.py
+Run before every commit:  python3 tools/check_consistency.py
 """
 
 import re
@@ -15,8 +15,12 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+# CLAIMS.md is deliberately absent: it is the register itself, so it quotes
+# retracted text verbatim and would false-positive on R1 and R2 forever.
 DOCS = ["PROBLEM.md", "PLAN.md", "BRIEF.md", "LIVEDEMO.md", "README.md", "demo.html",
-        "CONTROL-TOWER.md", "DEMO-TOMORROW.md"]
+        "CONTROL-TOWER.md", "DEMO-TOMORROW.md",
+        "PILOT.md", "ROLLOUT.md", "SCHEMA.md", "automation/README.md",
+        "ARCHITECTURE.md"]
 DECK = "L1-L2-Tower-Demo.pptx"
 
 # Retracted claims. Any reappearance is a regression — see CLAIMS.md.

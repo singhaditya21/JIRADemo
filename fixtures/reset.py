@@ -6,23 +6,22 @@ accumulates half-written runs and the dashboards stop meaning anything.
 
 Leaves the project, fields, statuses and workflow intact - only issues go.
 Pass --project to delete the project itself as well.
+
+Usage:  python3 -m fixtures.reset [--yes] [--project]
 """
 
 import argparse
-import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-from jira_client import Jira, log, require_env  # noqa: E402
-import config as C  # noqa: E402
+from shared.jira_client import Jira, log, require_env
+from jira_config import jira_schema as S
 
 
 def all_issue_keys(j):
     keys, start = [], 0
     while True:
         r = j.post("/rest/api/3/search/jql", {
-            "jql": f"project = {C.PROJECT_KEY} ORDER BY created ASC",
+            "jql": f"project = {S.PROJECT_KEY} ORDER BY created ASC",
             "maxResults": 100, "fields": ["key"],
             **({"nextPageToken": start} if isinstance(start, str) else {}),
         })
@@ -44,7 +43,7 @@ def main():
     require_env()
     j = Jira()
     keys = all_issue_keys(j)
-    log(f"  {len(keys)} issues in {C.PROJECT_KEY}")
+    log(f"  {len(keys)} issues in {S.PROJECT_KEY}")
     if not keys and not args.project:
         return
     if not args.yes:
@@ -66,8 +65,8 @@ def main():
     log(f"  deleted {done} issues")
 
     if args.project:
-        j.delete(f"/rest/api/3/project/{C.PROJECT_KEY}")
-        log(f"  deleted project {C.PROJECT_KEY}")
+        j.delete(f"/rest/api/3/project/{S.PROJECT_KEY}")
+        log(f"  deleted project {S.PROJECT_KEY}")
 
 
 if __name__ == "__main__":

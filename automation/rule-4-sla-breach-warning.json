@@ -30,5 +30,5 @@
       ]
     }
   ],
-  "whyItExists": "Warn while the ticket can still be saved, not after the target has passed. Thresholds are 75% of the P1-P4 targets in config.py; the Pending exclusion matters."
+  "whyItExists": "Warn while the ticket can still be saved, not after the target has passed. Thresholds are 75% of the P1-P4 targets in shared/domain.py; the Pending exclusion matters."
 }

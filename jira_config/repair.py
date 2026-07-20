@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Repair two defects in OPS that would have shown on screen during the demo.
 
-1. Dashboard 10001 rendered as 12 blank gadgets. 04_views.py created them but never
+1. Dashboard 10001 rendered as 12 blank gadgets. jira_config/views.py created them but never
    passed a filter id, so nothing was bound. The run sheet tells the presenter to open
    this dashboard, so this was a live-demo failure waiting to happen.
 
@@ -11,7 +11,7 @@
 
 Both are idempotent. Use --dry-run first.
 
-Usage:  python3 scripts/09_repair.py [--dry-run] [--only dashboard|resolution]
+Usage:  python3 -m jira_config.repair [--dry-run] [--only dashboard|resolution]
 """
 
 import argparse
@@ -19,57 +19,31 @@ import json
 import sys
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-from jira_client import Jira, log, require_env  # noqa: E402
-import config as C  # noqa: E402
+from shared.jira_client import Jira, log, require_env
+from jira_config import jira_schema as S
+from jira_config import BUILD_STATE as STATE
 
-STATE = Path(__file__).parent / ".build_state.json"
-DASHBOARD = "10001"
-
-# The twelve views worth a gadget, in reading order.
-GADGET_PLAN = [
-    ("OPS - L1 queue (open)", "L1 queue"),
-    ("OPS - L2 queue (open)", "L2 queue"),
-    ("OPS - Major incidents (Impact High + Urgency High)", "Major incidents"),
-    ("OPS - SLA breached (resolution)", "SLA breached"),
-    ("OPS - SLA paused (waiting on customer or vendor)", "SLA paused - clock stopped"),
-    ("OPS - Aged backlog over 14 days", "Aged over 14 days"),
-    ("OPS - Reopened tickets", "Reopened - paired with FTR"),
-    ("OPS - Escalated in last 30 days", "Escalated last 30 days"),
-    ("OPS - Escalated with no KB article found", "KB gap - the biggest lever"),
-    ("OPS - Intake via chat (shadow support pulled in)", "Shadow support via chat"),
-    ("OPS - P1 at risk (past 75% of target)", "P1 at risk"),
-    ("OPS - P2 at risk (past 75% of target)", "P2 at risk"),
-]
-
-COLUMNS = "issuetype|issuekey|summary|priority|status|updated"
-
-# Resolution Code (our field) -> Jira's native resolution. Blanket-setting everything to
-# "Done" would make the closure data say something untrue.
-RESOLUTION_MAP = {
-    "Fixed": "Done",
-    "Workaround applied": "Done",
-    "Implemented": "Done",
-    "Fulfilled": "Done",
-    "Referred to vendor": "Done",
-    "Known error documented": "Done",
-    "No fault found": "Cannot Reproduce",
-    "Duplicate": "Duplicate",
-    "Withdrawn by requester": "Won't Do",
-    "Rolled back": "Won't Do",
-}
-DEFAULT_RESOLUTION = "Done"
+# The dashboard plan is OWNED by jira_config/views.py and imported here, not
+# copied. This file used to carry its own twelve-entry copy alongside views.py's
+# three-entry one; two definitions of the same dashboard in two files is exactly
+# how the live dashboard drifted from what either of them believed.
+#
+# views.py is now the idempotent owner of the dashboard - it reconciles gadgets
+# rather than appending them. This script is the ONE-SHOT fixer that repaired the
+# twelve already-blank gadgets, kept because it is the tool that is known to have
+# worked on this instance. Prefer `python3 -m jira_config.views` for anything new.
+from jira_config.views import COLUMNS, GADGET_PLAN  # noqa: F401  (COLUMNS re-used below)
 
 
-def repair_dashboard(j, filters, dry):
-    gadgets = j.get(f"/rest/api/3/dashboard/{DASHBOARD}/gadget").get("gadgets", [])
-    log(f"  {len(gadgets)} gadgets on dashboard {DASHBOARD}")
-    # Stable order so re-runs bind the same gadget to the same filter.
+def repair_dashboard(j, dashboard, filters, dry):
+    gadgets = j.get(f"/rest/api/3/dashboard/{dashboard}/gadget").get("gadgets", [])
+    log(f"  {len(gadgets)} gadgets on dashboard {dashboard}")
+    # Stable order so re-runs bind the same gadget to the same filter. This
+    # positional zip is why GADGET_PLAN must stay in creation/id order.
     gadgets = sorted(gadgets, key=lambda g: g["id"])
     bound = 0
-    for gadget, (fname, title) in zip(gadgets, GADGET_PLAN):
+    for gadget, (fname, title, _row) in zip(gadgets, GADGET_PLAN):
         fid = filters.get(fname)
         if not fid:
             log(f"  ! no filter named {fname!r}")
@@ -80,9 +54,9 @@ def repair_dashboard(j, filters, dry):
             continue
         cfg = {"filterId": f"filter-{fid}", "num": "10",
                "columnNames": COLUMNS, "refresh": "false"}
-        j.put(f"/rest/api/3/dashboard/{DASHBOARD}/items/{gadget['id']}/properties/config", cfg)
+        j.put(f"/rest/api/3/dashboard/{dashboard}/items/{gadget['id']}/properties/config", cfg)
         try:
-            j.put(f"/rest/api/3/dashboard/{DASHBOARD}/gadget/{gadget['id']}", {"title": title})
+            j.put(f"/rest/api/3/dashboard/{dashboard}/gadget/{gadget['id']}", {"title": title})
         except RuntimeError:
             pass  # title is cosmetic; binding is what matters
         log(f"  bound gadget {gadget['id']} -> {title} (filter {fid})")
@@ -94,7 +68,7 @@ def fetch_unresolved(j, F):
     """Done tickets with no resolution, plus their Resolution Code."""
     out, token = [], None
     while True:
-        body = {"jql": f"project = {C.PROJECT_KEY} AND statusCategory = Done "
+        body = {"jql": f"project = {S.PROJECT_KEY} AND statusCategory = Done "
                        f"AND resolution = Unresolved ORDER BY created ASC",
                 "maxResults": 100,
                 "fields": ["key", "status", F["Resolution Code"]]}
@@ -122,7 +96,7 @@ def repair_resolutions(j, F, dry, workers):
         if status == "Cancelled":
             target = "Won't Do"
         else:
-            target = RESOLUTION_MAP.get(code, DEFAULT_RESOLUTION)
+            target = S.RESOLUTION_MAP.get(code, S.DEFAULT_RESOLUTION)
         plan.append((key, target))
     log("  mapping: " + ", ".join(f"{k}={v}" for k, v in Counter(t for _, t in plan).items()))
     if dry:
@@ -153,11 +127,21 @@ def main():
 
     require_env()
     j = Jira()
+    if not STATE.exists():
+        sys.exit("%s missing - run python3 -m jira_config.build first." % STATE.name)
     state = json.loads(STATE.read_text())
+
+    # The dashboard id is recorded by jira_config/views.py. Hardcoding it (this
+    # script used to carry DASHBOARD = "10001") made repair.py unusable anywhere
+    # but the one instance it was written against.
+    dashboard = state.get("dashboard_id")
 
     if args.only != "resolution":
         log("== dashboard gadgets ==")
-        n = repair_dashboard(j, state["filters"], args.dry_run)
+        if not dashboard:
+            sys.exit("no dashboard_id in %s - run python3 -m jira_config.views first."
+                     % STATE.name)
+        n = repair_dashboard(j, dashboard, state["filters"], args.dry_run)
         log(f"  {n} gadgets bound")
 
     if args.only != "dashboard":
@@ -169,18 +153,22 @@ def main():
         log("\n== verify ==")
         def c(q):
             return j.post("/rest/api/3/search/approximate-count", {"jql": q}).get("count")
-        unresolved = c("project=OPS AND statusCategory=Done AND resolution=Unresolved")
-        total = c("project=OPS")
-        tier2 = c('project=OPS AND "Support Tier"=L2')
-        gate = c('project=OPS AND "Troubleshooting Performed" is not EMPTY')
+        pk = S.PROJECT_KEY
+        unresolved = c(f"project={pk} AND statusCategory=Done AND resolution=Unresolved")
+        total = c(f"project={pk}")
+        tier2 = c(f'project={pk} AND "Support Tier"=L2')
+        gate = c(f'project={pk} AND "Troubleshooting Performed" is not EMPTY')
         log(f"  Done without resolution: {unresolved}  (target 0)")
-        log(f"  total issues:            {total}  (must stay 420)")
-        log(f"  tier L2:                 {tier2}  (must stay 171)")
-        log(f"  gate evidence:           {gate}  (must stay 171)")
-        gl = j.get(f"/rest/api/3/dashboard/{DASHBOARD}/gadget").get("gadgets", [])
+        # The three counts below are reported, not asserted. 420 / 171 / 171 are
+        # facts about the 2026-07-20 demo seed, not invariants of the schema, and
+        # a repair script that "fails" on a differently-sized project is useless.
+        log(f"  total issues:            {total}  (420 at the 2026-07-20 demo seed)")
+        log(f"  tier L2:                 {tier2}  (171 at the 2026-07-20 demo seed)")
+        log(f"  gate evidence:           {gate}  (171 at the 2026-07-20 demo seed)")
+        gl = j.get(f"/rest/api/3/dashboard/{dashboard}/gadget").get("gadgets", [])
         wired = 0
         for g in gl:
-            p = j.try_get(f"/rest/api/3/dashboard/{DASHBOARD}/items/{g['id']}/properties/config")
+            p = j.try_get(f"/rest/api/3/dashboard/{dashboard}/items/{g['id']}/properties/config")
             if p and p.get("value", {}).get("filterId"):
                 wired += 1
         log(f"  gadgets bound to a filter: {wired}/{len(gl)}")

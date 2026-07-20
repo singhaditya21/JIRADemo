@@ -9,12 +9,12 @@ where the first problem records become the KB articles every later tower inherit
 ## 1. Measured baseline
 
 Run against the live `OPS` project on 2026-07-20, 90-day window, measured on
-`Reported At`. SLA state is **computed** by `08_sla.py`, not seeded — P1/P2 on the
+`Reported At`. SLA state is **computed** by `app/sla_engine.py`, not seeded — P1/P2 on the
 24×7 clock, P3/P4 on a business-hours calendar, paused states excluded:
 
 ```
-python3 scripts/08_sla.py          # recompute SLA from the timeline
-python3 scripts/07_baseline.py --days 90 --by-tower
+python3 -m app.cli sla --project OPS      # recompute SLA from the timeline
+python3 -m app.cli metrics --project OPS --days 90 --by-tower
 ```
 
 | Metric | Measured | Placeholder target | |
@@ -42,7 +42,7 @@ replace them with targets set from this baseline.
 
 ## 2. Pilot tower: End User Computing
 
-Chosen by the ranking in `07_baseline.py`, which sorts on volume × improvement
+Chosen by the ranking in `app/metrics.py`, which sorts on volume × improvement
 headroom — enough traffic to be statistically meaningful, enough gap to be worth
 fixing.
 
@@ -132,9 +132,9 @@ gate: it produces confident-looking escalation data that is false.
 The environment is resettable, so the pilot can be dry-run end to end:
 
 ```bash
-python3 scripts/99_reset.py --yes     # wipe issues
-python3 scripts/03_seed.py            # fixed RNG seed - identical data every time
-python3 scripts/07_baseline.py --by-tower
+python3 -m fixtures.reset --yes       # wipe issues
+python3 -m fixtures.seed              # fixed RNG seed - identical data every time
+python3 -m app.cli metrics --project OPS --by-tower
 ```
 
 Same dataset every run, so a change in the numbers means a change you made, not

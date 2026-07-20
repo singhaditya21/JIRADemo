@@ -119,7 +119,7 @@
   ],
   "sla_clock": {
     "model": "24x7 elapsed for ALL priorities",
-    "note": "ITSM Response/Resolution SLA verdicts were recomputed from the persisted Reported At -> First Response At / Resolved At pair on a single 24x7 elapsed clock. config.py SLA_CLOCK (business hours for P3/P4) is NOT the model used by ITSM data; do not narrate a business-hours split for ITSM.",
+    "note": "ITSM Response/Resolution SLA verdicts were recomputed from the persisted Reported At -> First Response At / Resolved At pair on a single 24x7 elapsed clock. shared/domain.py SLA_CLOCK (business hours for P3/P4) is NOT the model used by ITSM data; do not narrate a business-hours split for ITSM.",
     "targets_hours": {
       "P1": [
         0.25,

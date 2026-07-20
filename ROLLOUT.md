@@ -1,7 +1,7 @@
 # Rollout — the remaining five towers
 
 Rollout is a change-management exercise wearing a configuration costume. The build is
-already done: adding a tower is one line in `scripts/config.py`. What takes the time
+already done: adding a tower is one line in `shared/domain.py`. What takes the time
 is people, and that is what this document is about.
 
 ---
@@ -34,10 +34,10 @@ Two weeks per wave, overlapping — wave *n* runs its second week while wave *n+
 its first.
 
 ```bash
-# 1. add the tower to TOWERS in scripts/config.py
-python3 scripts/01_build.py        # adds the select option, idempotent
-python3 scripts/04_views.py        # creates that tower's L2 queue
-python3 scripts/07_baseline.py --by-tower   # capture the pre-cutover baseline
+# 1. add the tower to TOWERS in shared/domain.py
+python3 -m jira_config.build       # adds the select option, idempotent
+python3 -m jira_config.views       # creates that tower's L2 queue
+python3 -m app.cli metrics --project OPS --by-tower   # capture the pre-cutover baseline
 ```
 
 Then, per wave:

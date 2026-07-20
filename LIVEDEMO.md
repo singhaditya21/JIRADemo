@@ -63,20 +63,43 @@ Combine them: CSV-import the historical baseline for the charts, then use the RE
 
 ## 4. Repo layout
 
+> This section was written before the build. The layout below is what was actually
+> built; the original plan named eight scripts (`00_env.sh`, `01_project.py`,
+> `02_fields.py`, `03_screens.py`, `04_workflow.py`, `05_schemes.py`, `06_seed.py`,
+> `99_teardown.py`) and a `data/historical.csv` that were superseded — CSV import
+> was never used, the REST seeder covers it.
+
 ```
-scripts/
-  00_env.sh            # JIRA_SITE, JIRA_EMAIL, JIRA_TOKEN from environment — never hardcoded
-  01_project.py        # company-managed project OPS
-  02_fields.py         # custom fields + contexts (Tower, Support Tier, Impact, Urgency, ...)
-  03_screens.py        # screens, screen schemes, field configuration
-  04_workflow.py       # statuses, transitions, the escalation-gate validator, post-functions
-  05_schemes.py        # issue type / workflow / permission schemes, bind to project
-  06_seed.py           # generate tickets, drive them through transitions
-  99_teardown.py       # delete project + fields so the demo can be re-run clean
+shared/                # vendor-neutral, no Jira specifics
+  jira_client.py       # thin REST client; reads JIRA_SITE/EMAIL/TOKEN from environment
+  domain.py            # towers, priority matrix, SLA targets & calendars, statuses, field names
+  fields.py            # runtime field resolver: name -> customfield id, no build artifact
+jira_config/           # infrastructure as code; declarative, idempotent, run on change
+  jira_schema.py       # the only Jira-specific mapping: type keys, searcher keys, project key
+  build.py             # project, custom fields + contexts, screens, field configuration
+  workflow.py          # statuses, transitions, the escalation-gate validator
+  issuetypes.py        # Incident / Service Request / Change / Problem
+  priority.py          # P1–P4 and the priority scheme
+  views.py             # saved filters + dashboard gadgets
+  reconcile.py         # filter/gadget/queue reconciliation engine + the dry-run write gate
+  jsm_build.py         # the ITSM service project, reusing every global object
+  jsm_views.py         # agent queues, ITSM filters, dashboard
+  repair.py            # one-off remediation of known defects
+  state/               # build artifacts — written by jira_config, read by nothing else
+  apply.py             # orchestrator: build -> workflow -> issuetypes -> priority -> views
+fixtures/              # demo and test data ONLY — never runs in production
+  catalog.py           # ticket content: symptoms, services, resolutions per tower
+  seed.py              # generate OPS tickets, drive them through transitions
+  jsm_seed.py          # the same model retargeted at the ITSM service project
+  reset.py             # wipe issues so the demo can be re-run clean
+app/                   # the application layer — stateless, read-mostly
+  sla_engine.py        # recompute SLA from the timeline
+  metrics.py           # the six scoreboard metrics
+  cli.py               # python3 -m app.cli sla | metrics
+tools/
+  check_consistency.py # guards the deliverables against retracted claims
 automation/
   *.json               # exported Automation rules, imported via the UI
-data/
-  historical.csv       # backdated baseline for charts, via CSV import
 ```
 
 **Idempotency and teardown matter more than they look.** You will rehearse this four or five times. A build that only works against a clean site, or that can't be reset, means your last rehearsal leaves the demo environment in a state you have not practised on.

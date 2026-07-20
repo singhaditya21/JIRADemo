@@ -8,7 +8,7 @@ Four surfaces, in the order an agent actually uses them:
                       There is NO delete over REST or GraphQL on this instance, so
                       every queue here is permanent: names are final and the script
                       renames in place (PUT) rather than recreating on a re-run.
-  2. SAVED FILTERS  - the 20-filter mirror of OPS's 04_views.py, retargeted at ITSM.
+  2. SAVED FILTERS  - the 20-filter mirror of OPS's jira_config/views.py, retargeted at ITSM.
   3. DASHBOARD      - "ITSM - L1/L2 Control Tower", with gadgets CONFIGURED over REST
                       (see note below).
   4. PORTAL         - one organization, linked to the service desk, plus the existing
@@ -18,13 +18,17 @@ Idempotent - safe to re-run. Filters are updated in place, queues are updated in
 place, dashboard gadgets are reconciled (dropped and re-added) so re-running never
 duplicates them.
 
-GADGET CONFIG IS REST-WRITABLE. 04_views.py added three gadgets to the OPS dashboard
+GADGET CONFIG IS REST-WRITABLE. jira_config/views.py added three gadgets to the OPS dashboard
 but never configured them, so they render as an unconfigured "select a filter" prompt.
 The missing step is a second call after the add:
     PUT /rest/api/3/dashboard/{dashboardId}/items/{gadgetId}/properties/config
 Verified working on a throwaway dashboard for filter-results, pie-chart,
 two-dimensional-stats, stats and heat-map gadgets. OPS's dashboard is NOT touched
-here - fixing it is a one-line change to 04_views.py, left to the owner.
+here - views.py has since been rewritten to reconcile gadgets (matching on title,
+binding each to its filter, adding only what is missing) rather than appending them,
+so that defect is closed at the source. The reconciler lives in
+jira_config/reconcile.py; this module still carries its own delete-then-rebuild
+dashboard logic and is the next thing that should adopt it.
 
 DATES. Every window keys off "Reported At" (customfield_10057), never `created`.
 `created` is read-only over REST so all 420 seeded tickets carry today's date; any
@@ -37,39 +41,33 @@ OPS SAFETY. OPS is live and demoed tomorrow. This script writes only to:
   - project ITSM (queues), - NEW filters named "ITSM - ...", - a NEW dashboard,
   - a NEW organization, - service desk 8.
 It never writes to OPS, never touches an OPS filter or the OPS dashboard, and never
-writes .build_state.json. guard_ops() runs before the first write and after the last,
-and additionally asserts every OPS filter recorded in .build_state.json still resolves.
+writes state/.build_state.json. guard_ops() runs before the first write and after the last,
+and additionally asserts every OPS filter recorded in state/.build_state.json still resolves.
 
-Writes scripts/.jsm_state.json.
+Writes jira_config/state/.jsm_state.json.
+
+Usage:  python3 -m jira_config.jsm_views
 """
 
 import argparse
 import json
 import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-from jira_client import Jira, log, require_env  # noqa: E402
-import config as C  # noqa: E402
+from shared.jira_client import Jira, log, require_env
+from shared import domain as D
+from jira_config import jira_schema as S
+from jira_config.reconcile import Writer
+from jira_config import BUILD_STATE as OPS_STATE, JSM_STATE as STATE
 
-HERE = Path(__file__).parent
-OPS_STATE = HERE / ".build_state.json"
-STATE = HERE / ".jsm_state.json"
-
-P = "ITSM"
-SERVICE_DESK_ID = "8"
+P = S.JSM_PROJECT_KEY
+SERVICE_DESK_ID = S.SERVICE_DESK_ID
 DASH_NAME = "ITSM - L1/L2 Control Tower"
 ORG_NAME = "Northwind Manufacturing"
 
-# Full priority names. "P1" alone matches nothing.
-PRIORITY_NAME = {"P1": "P1 - Critical", "P2": "P2 - High",
-                 "P3": "P3 - Medium", "P4": "P4 - Low"}
-
 # ITSM runs the stock ITIL workflows, so the paused-status names differ from OPS's
-# ("Pending Customer" / "Pending Vendor"). These are the ITSM statuses where the
-# clock is legitimately stopped - the ball is not in our court.
-PAUSED_STATUSES = ["Pending", "Waiting for customer", "Waiting for approval"]
-_PAUSED_JQL = ", ".join(f'"{s}"' for s in PAUSED_STATUSES)
+# own (domain.SLA_PAUSED_STATUSES). These are the ITSM statuses where the clock is
+# legitimately stopped - the ball is not in our court.
+_PAUSED_JQL = ", ".join(f'"{s}"' for s in S.JSM_PAUSED_STATUSES)
 
 
 # ---------------------------------------------------------------------------
@@ -78,17 +76,21 @@ _PAUSED_JQL = ", ".join(f'"{s}"' for s in PAUSED_STATUSES)
 
 def load_state():
     if not STATE.exists():
-        sys.exit(f"{STATE.name} missing - run scripts/10_jsm_build.py first.")
+        sys.exit(f"{STATE.name} missing - run python3 -m jira_config.jsm_build first.")
     return json.loads(STATE.read_text())
 
 
-def save_state(s):
+def save_state(s, dry=False):
+    """A rehearsal must not mutate the artifact it is rehearsing."""
+    if dry:
+        return
+    STATE.parent.mkdir(parents=True, exist_ok=True)
     STATE.write_text(json.dumps(s, indent=2))
 
 
 def load_ops_state():
     if not OPS_STATE.exists():
-        sys.exit(f"{OPS_STATE.name} missing - run scripts/01_build.py first.")
+        sys.exit(f"{OPS_STATE.name} missing - run python3 -m jira_config.build first.")
     return json.loads(OPS_STATE.read_text())
 
 
@@ -100,9 +102,9 @@ def guard_ops(j, ops, when):
     """Abort loudly if anything OPS depends on has moved. Read-only."""
     problems = []
 
-    proj = j.try_get(f"/rest/api/3/project/{C.PROJECT_KEY}")
+    proj = j.try_get(f"/rest/api/3/project/{S.PROJECT_KEY}")
     if not proj or proj.get("id") != ops["project_id"]:
-        problems.append(f"project {C.PROJECT_KEY} missing or moved")
+        problems.append(f"project {S.PROJECT_KEY} missing or moved")
     else:
         have_types = {t["id"] for t in proj.get("issueTypes", [])}
         for name, tid in ops.get("issue_types", {}).items():
@@ -147,7 +149,7 @@ def guard_ops(j, ops, when):
 # ---------------------------------------------------------------------------
 
 def build_filters():
-    """Returns [(name, jql, description)]. Mirrors 04_views.py, retargeted at ITSM."""
+    """Returns [(name, jql, description)]. Mirrors jira_config/views.py, retargeted at ITSM."""
     f = [
         ("ITSM - L1 queue (open)",
          f'project = {P} AND "Support Tier" = L1 AND statusCategory != Done '
@@ -203,7 +205,7 @@ def build_filters():
     ]
 
     # One L2 queue per tower - escalated work lands in the tower pool, not on a person.
-    for tower, _ in C.TOWERS:
+    for tower, _ in D.TOWERS:
         f.append((
             f"ITSM - L2 queue: {tower}",
             f'project = {P} AND "Support Tier" = L2 AND Tower = "{tower}" '
@@ -212,27 +214,27 @@ def build_filters():
         ))
 
     # At-risk: past 75% of the resolution target, clock still running.
-    for p, (_resp, res) in C.SLA_TARGETS.items():
+    for p, (_resp, res) in D.SLA_TARGETS.items():
         threshold = int(res * 0.75)
         f.append((
             f"ITSM - {p} at risk (past 75% of target)",
-            f'project = {P} AND priority = "{PRIORITY_NAME[p]}" AND statusCategory != Done '
+            f'project = {P} AND priority = "{D.PRIORITY_LABELS[p]}" AND statusCategory != Done '
             f'AND status NOT IN ({_PAUSED_JQL}) '
             f'AND "Reported At" <= -{threshold}h ORDER BY "Reported At" ASC',
-            f"{PRIORITY_NAME[p]} tickets past {threshold}h of a {res}h resolution "
+            f"{D.PRIORITY_LABELS[p]} tickets past {threshold}h of a {res}h resolution "
             f"target with the clock still running.",
         ))
 
     return f
 
 
-def ensure_filter(j, name, jql, desc, existing):
+def ensure_filter(w, name, jql, desc, existing):
     if name in existing:
         fid = existing[name]
-        j.put(f"/rest/api/3/filter/{fid}",
+        w.put(f"/rest/api/3/filter/{fid}",
               {"name": name, "jql": jql, "description": desc})
         return fid, False
-    res = j.post("/rest/api/3/filter",
+    res = w.post("/rest/api/3/filter",
                  {"name": name, "jql": jql, "description": desc,
                   "favourite": True,
                   "sharePermissions": [{"type": "authenticated"}]})
@@ -272,7 +274,7 @@ def build_queues():
          'resolution = Unresolved AND "Support Tier" = L2 '
          'ORDER BY priority DESC, "Reported At" ASC'),
     ]
-    for tower, _ in C.TOWERS:
+    for tower, _ in D.TOWERS:
         q.append((
             f"L2 - {tower}",
             f'resolution = Unresolved AND "Support Tier" = L2 AND Tower = "{tower}" '
@@ -292,7 +294,8 @@ def build_queues():
     return q
 
 
-def ensure_queues(j, state):
+def ensure_queues(w, state):
+    j = w.j
     """Create or update agent queues.
 
     NO DELETE EXISTS over REST or GraphQL on this instance, so a botched name is
@@ -309,11 +312,11 @@ def ensure_queues(j, state):
         try:
             if name in by_name:
                 qid = by_name[name]
-                j.put(f"/rest/servicedesk/1/servicedesk/{P}/queues/{qid}", body)
+                w.put(f"/rest/servicedesk/1/servicedesk/{P}/queues/{qid}", body)
                 ids[name], updated = qid, updated + 1
                 log(f"  = {name}")
             else:
-                res = j.post(f"/rest/servicedesk/1/servicedesk/{P}/queues", body)
+                res = w.post(f"/rest/servicedesk/1/servicedesk/{P}/queues", body)
                 ids[name], created = res["id"], created + 1
                 log(f"  + {name} (id {res['id']})")
         except RuntimeError as e:
@@ -423,7 +426,8 @@ def validate_stat_types(j):
     log(f"  statTypes validated against {len(valid)} live values")
 
 
-def ensure_dashboard(j, state, filter_ids):
+def ensure_dashboard(w, state, filter_ids):
+    j = w.j
     validate_stat_types(j)
     dashes = j.try_get("/rest/api/3/dashboard/search?maxResults=100", {}) or {}
     hit = [d for d in dashes.get("values", []) if d["name"] == DASH_NAME]
@@ -431,7 +435,7 @@ def ensure_dashboard(j, state, filter_ids):
         did = hit[0]["id"]
         log(f"  = dashboard exists ({did})")
     else:
-        d = j.post("/rest/api/3/dashboard", {
+        d = w.post("/rest/api/3/dashboard", {
             "name": DASH_NAME,
             "description": "L1/L2 control tower for the ITSM service project. Every "
                            "date window keys off Reported At, never created.",
@@ -446,7 +450,7 @@ def ensure_dashboard(j, state, filter_ids):
         old = (j.try_get(f"/rest/api/3/dashboard/{did}/gadget", {}) or {}).get("gadgets", [])
         for g in old:
             try:
-                j.delete(f"/rest/api/3/dashboard/{did}/gadget/{g['id']}")
+                w.delete(f"/rest/api/3/dashboard/{did}/gadget/{g['id']}")
             except RuntimeError as e:
                 log(f"  ! could not clear gadget {g['id']}: {str(e)[:120]}")
         if old:
@@ -465,7 +469,7 @@ def ensure_dashboard(j, state, filter_ids):
         else:
             payload["moduleKey"] = MODULE[kind]
         try:
-            g = j.post(f"/rest/api/3/dashboard/{did}/gadget", payload)
+            g = w.post(f"/rest/api/3/dashboard/{did}/gadget", payload)
             gid = g["id"]
         except RuntimeError as e:
             add_failed.append(f"{label} [{kind}]: {str(e)[:120]}")
@@ -475,10 +479,14 @@ def ensure_dashboard(j, state, filter_ids):
         full = dict(cfg)
         full["filterId"] = f"filter-{fid}"
         try:
-            j.put(f"/rest/api/3/dashboard/{did}/items/{gid}/properties/config", full)
-            back = j.get(f"/rest/api/3/dashboard/{did}/items/{gid}/properties/config")
-            if back.get("value", {}).get("filterId") != full["filterId"]:
-                raise RuntimeError("config did not round-trip")
+            w.put(f"/rest/api/3/dashboard/{did}/items/{gid}/properties/config", full)
+            # The read-back is the proof the gadget is really bound to its filter.
+            # A dry run created no gadget, so there is nothing to read back and the
+            # GET would 404 on a placeholder id - skip it rather than fake a pass.
+            if not w.dry:
+                back = j.get(f"/rest/api/3/dashboard/{did}/items/{gid}/properties/config")
+                if back.get("value", {}).get("filterId") != full["filterId"]:
+                    raise RuntimeError("config did not round-trip")
             worked.append(f"{label} [{kind}]")
             log(f"  + {label} [{kind}] -> filter {fid}")
         except RuntimeError as e:
@@ -495,7 +503,8 @@ def ensure_dashboard(j, state, filter_ids):
 # 4. portal: organization + customers
 # ---------------------------------------------------------------------------
 
-def ensure_portal(j, state):
+def ensure_portal(w, state):
+    j = w.j
     """Create one organization, link it to the service desk, and add the existing
     admin account as a portal customer.
 
@@ -512,7 +521,7 @@ def ensure_portal(j, state):
         oid = hit[0]["id"]
         log(f"  = organization '{ORG_NAME}' exists (id {oid})")
     else:
-        o = j.post("/rest/servicedeskapi/organization", {"name": ORG_NAME})
+        o = w.post("/rest/servicedeskapi/organization", {"name": ORG_NAME})
         oid = o["id"]
         log(f"  + organization '{ORG_NAME}' (id {oid})")
     state["organization_id"] = oid
@@ -523,7 +532,7 @@ def ensure_portal(j, state):
         log(f"  = organization already linked to service desk {SERVICE_DESK_ID}")
     else:
         try:
-            j.post(f"/rest/servicedeskapi/servicedesk/{SERVICE_DESK_ID}/organization",
+            w.post(f"/rest/servicedeskapi/servicedesk/{SERVICE_DESK_ID}/organization",
                    {"organizationId": int(oid)})
             log(f"  + organization linked to service desk {SERVICE_DESK_ID}")
         except RuntimeError as e:
@@ -531,7 +540,7 @@ def ensure_portal(j, state):
 
     me = j.get("/rest/api/3/myself")["accountId"]
     try:
-        j.post(f"/rest/servicedeskapi/servicedesk/{SERVICE_DESK_ID}/customer",
+        w.post(f"/rest/servicedeskapi/servicedesk/{SERVICE_DESK_ID}/customer",
                {"accountIds": [me]})
         log("  + admin account added as a portal customer")
     except RuntimeError as e:
@@ -574,14 +583,17 @@ def verify(j, filter_ids, queue_ids):
 
 # ---------------------------------------------------------------------------
 
-def main():
-    ap = argparse.ArgumentParser()
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="jira_config.jsm_views")
     ap.add_argument("--skip-queues", action="store_true",
                     help="queues are PERMANENT (no REST delete) - skip to avoid them")
-    args = ap.parse_args()
+    ap.add_argument("--dry-run", action="store_true",
+                    help="log every write without issuing it, and write no state")
+    args = ap.parse_args(argv)
 
     require_env()
     j = Jira()
+    w = Writer(j, dry=args.dry_run)
     state = load_state()
     ops = load_ops_state()
 
@@ -593,29 +605,29 @@ def main():
         log("  skipped (--skip-queues)")
         queue_ids = state.get("queues", {})
     else:
-        queue_ids = ensure_queues(j, state)
-    save_state(state)
+        queue_ids = ensure_queues(w, state)
+    save_state(state, args.dry_run)
 
     log("\n== saved filters ==")
     existing = list_all_filters(j)
     filter_ids = {}
     for name, jql, desc in build_filters():
         try:
-            fid, is_new = ensure_filter(j, name, jql, desc, existing)
+            fid, is_new = ensure_filter(w, name, jql, desc, existing)
             filter_ids[name] = fid
             log(f"  {'+' if is_new else '='} {name}")
         except RuntimeError as e:
             log(f"  ! {name}: {str(e)[:200]}")
     state["filters"] = filter_ids
-    save_state(state)
+    save_state(state, args.dry_run)
 
     log("\n== dashboard ==")
-    did, worked, cfg_failed, add_failed = ensure_dashboard(j, state, filter_ids)
-    save_state(state)
+    did, worked, cfg_failed, add_failed = ensure_dashboard(w, state, filter_ids)
+    save_state(state, args.dry_run)
 
     log("\n== portal ==")
-    ensure_portal(j, state)
-    save_state(state)
+    ensure_portal(w, state)
+    save_state(state, args.dry_run)
 
     empty, errored = verify(j, filter_ids, queue_ids)
 
@@ -643,6 +655,8 @@ def main():
     if add_failed:
         for e in add_failed:
             log(f"  GADGET NOT ADDED: {e}")
+    log("\n  %d write(s) issued%s"
+        % (w.writes, " [DRY RUN - none applied]" if args.dry_run else ""))
 
 
 if __name__ == "__main__":

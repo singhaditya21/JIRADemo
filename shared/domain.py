@@ -1,23 +1,17 @@
 #!/usr/bin/env python3
-"""Single source of truth for the OPS project schema.
+"""The vendor-neutral operating model for an L1/L2 support tower.
 
-The four previously-open decisions are resolved here as working defaults. Each is
+Towers, the priority matrix, SLA targets and calendars, statuses, staffing, and
+the NAMES of the fields the model needs. Nothing in this file knows what Jira is.
+
+Everything Jira-specific - project keys, custom-field type keys, searcher keys,
+template keys, scheme names - lives in jira_config/jira_schema.py. That module
+may import this one; this one may never import it. The application layer (app/)
+imports this module and never jira_schema.
+
+The previously-open decisions are resolved here as working defaults. Each is
 marked DECISION with its rationale — override any of them and re-run the build.
 """
-
-PROJECT_KEY = "OPS"
-PROJECT_NAME = "IT Operations - L1 L2 Support"
-
-# ---------------------------------------------------------------------------
-# DECISION 1 — Licensing.
-# Build on Jira Software now; provision JSM in parallel.
-# Rationale: JSM is not provisioned (servicedeskapi 403) and waiting on a
-# licensing call blocks everything. Every mechanism in the design except the
-# SLA engine, queues and portal works on Jira Software today. SLA state is
-# carried in the fields below so the model is identical; when JSM lands, the
-# native engine replaces the fields and nothing else changes.
-# ---------------------------------------------------------------------------
-SLA_BACKEND = "fields"  # "fields" until JSM is provisioned, then "jsm"
 
 # ---------------------------------------------------------------------------
 # DECISION 2 — Towers. Six, not eight.
@@ -155,10 +149,23 @@ SLA_TARGETS = {
 # Which calendar each priority is measured on.
 SLA_CLOCK = {"P1": "24x7", "P2": "24x7", "P3": "business", "P4": "business"}
 
+# The contractual display label for each priority code. "P1 - Critical" is what the
+# business agreed to, so it is model, not rendering - the colour and icon that Jira
+# paints it with are in jira_config/jira_schema.py.
+#
+# This dict was duplicated in four places before the split (the SLA engine, both
+# views modules and the JSM seeder), which is exactly how a label drifts.
+PRIORITY_LABELS = {"P1": "P1 - Critical", "P2": "P2 - High",
+                   "P3": "P3 - Medium", "P4": "P4 - Low"}
+PRIORITY_CODES = {v: k for k, v in PRIORITY_LABELS.items()}
+
 # Business-hours calendar: Mon-Fri, 09:00-17:00 (8h/day, 40h/week).
 BUSINESS_DAY = (9, 17)
 BUSINESS_DAYS = (0, 1, 2, 3, 4)  # Monday=0
 
+# The second element is a neutral lifecycle slug, not a Jira value. It happens to
+# read like Jira's statusCategory vocabulary; the actual API constants live in
+# jira_schema.STATUS_CATEGORY, which is the only place the bridge is made.
 STATUSES = [
     ("New", "new"), ("Triage", "indeterminate"), ("In Progress L1", "indeterminate"),
     ("Escalated to L2", "indeterminate"), ("In Progress L2", "indeterminate"),
@@ -168,3 +175,29 @@ STATUSES = [
 ]
 
 SLA_PAUSED_STATUSES = ["Pending Customer", "Pending Vendor"]
+
+# PLACEHOLDER thresholds (CLAIMS.md #14/#15). These are business targets, so they
+# belong to the model rather than to the reporting script that prints them.
+# ("ge" = higher is better, "le" = lower is better.)
+SCORECARD_TARGETS = {"ftr_pct": (65, "ge"), "reopen_pct": (5, "le"),
+                     "sla_pct": (95, "ge"), "response_pct": (95, "ge")}
+
+# The fields the SLA engine reads and writes, by NAME. The contract between the
+# configurator and the application is the field name - never a customfield id
+# captured in a build artifact.
+SLA_FIELD_NAMES = ["Reported At", "Resolved At", "First Response At",
+                   "Response SLA", "Resolution SLA"]
+
+# Every field the configurator creates is stamped with a description containing
+# this phrase ("<PROJECT> tower schema - <Field Name>"). shared/fields.py uses it
+# to break a duplicate-NAME tie, and for nothing else.
+#
+# It has to be a substring rather than the whole description because the stamp
+# embeds the project key, and the resolver must work on OPS, ITSM and a fresh
+# instance alike. It is a TIE-BREAK, never a filter: "Impact" is a Jira built-in
+# on this site and carries no stamp at all, yet must still resolve.
+#
+# If the configurator ever stops stamping this, the tie-break loses its only
+# signal and resolution of a duplicated name starts failing loudly. That is the
+# intended failure mode - see shared/fields.py.
+FIELD_DESCRIPTION_TAG = "tower schema"

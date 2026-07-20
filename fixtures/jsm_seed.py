@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Seed the ITSM (Jira Service Management) project with realistic L1/L2 tower traffic.
 
-This is 03_seed.py's model re-targeted at JSM. The ticket *content* and the whole
+This is fixtures/seed.py's model re-targeted at JSM. The ticket *content* and the whole
 derivation chain (tower -> archetype -> impact/urgency -> priority -> SLA target ->
-timeline) are reused verbatim from catalog.py and config.py, so ITSM tells the same
+timeline) are reused verbatim from fixtures/catalog.py and shared/domain.py, so ITSM tells the same
 operational story as OPS. What changes is the shape of the container:
 
   * OPS has one bespoke workflow with eleven statuses shared by all four types.
@@ -21,7 +21,7 @@ operational story as OPS. What changes is the shape of the container:
   * Service requests that need sign-off use "Service Request with Approvals" and
     are driven through its approval gate.
 
-Everything else that 03_seed.py learned the hard way still applies and is kept:
+Everything else that fixtures/seed.py learned the hard way still applies and is kept:
   * Jira's `created` is read-only, so the real timeline lives in `Reported At`
     and every view keys off it, not `created`.
   * Textarea custom fields need ADF, not a bare string.
@@ -36,28 +36,28 @@ real customer request rather than a bare Jira issue.
 
 SAFETY: writes only to ITSM. A guard asserts OPS is untouched before and after.
 
-Usage:  python3 scripts/11_jsm_seed.py [--count 420] [--dry-run] [--pilot 6]
+Usage:  python3 -m fixtures.jsm_seed [--count 420] [--dry-run] [--pilot 6]
 """
 
 import argparse
 import json
 import random
-import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-from jira_client import Jira, adf, log, require_env  # noqa: E402
-import config as C  # noqa: E402
-import catalog as K  # noqa: E402
+from shared.jira_client import Jira, adf, log, require_env
+from shared import domain as D
+from jira_config import jira_schema as S
+from jira_config import BUILD_STATE as OPS_STATE, JSM_STATE as STATE
+from fixtures import catalog as K
 
-STATE = Path(__file__).parent / ".jsm_state.json"
-OPS_STATE = Path(__file__).parent / ".build_state.json"
-DONE = Path(__file__).parent / ".jsm_seed_done.json"
+# The resume cursor is a fixture artifact, not build state, so it sits beside the
+# seeder rather than in jira_config/state/.
+DONE = Path(__file__).resolve().parent / ".jsm_seed_done.json"
 SEED = 20260721
-PROJECT = "ITSM"
+PROJECT = S.JSM_PROJECT_KEY
 SEED_LABEL = "tower-seed"
 
 # Target mix for the JSM tower (incidents dominate a little harder than in OPS).
@@ -73,9 +73,6 @@ NOTES_FOR = {
     "Change": K.CHANGE_NOTES,
     "Problem": K.PROBLEM_NOTES,
 }
-
-PRIORITY_NAME = {"P1": "P1 - Critical", "P2": "P2 - High",
-                 "P3": "P3 - Medium", "P4": "P4 - Low"}
 
 APPROVER_ID = [None]  # filled from /myself at run time
 
@@ -339,7 +336,7 @@ def request_type_for(jtype, title):
 
 
 # ---------------------------------------------------------------------------
-# Ticket model - the derivation chain is 03_seed.py's, unchanged.
+# Ticket model - the derivation chain is fixtures/seed.py's, unchanged.
 # ---------------------------------------------------------------------------
 def weighted(rng, pairs):
     vals, wts = zip(*pairs)
@@ -382,7 +379,7 @@ def build_ticket(idx, now, itype, tower):
     title, detail, base_impact, base_urgency = rng.choice(pool)
     esc_odds, time_mult, res_codes = K.TYPE_BEHAVIOUR[itype]
     esc_odds = min(esc_odds * ESC_UPLIFT, 0.95)
-    channel = weighted(rng, C.INTAKE_CHANNELS)
+    channel = weighted(rng, D.INTAKE_CHANNELS)
     if itype in ("Change", "Problem"):
         channel = "Portal"
 
@@ -406,8 +403,8 @@ def build_ticket(idx, now, itype, tower):
     if rng.random() < 0.08:
         impact = rng.choice(["High", "Medium", "Low"])
 
-    priority = C.PRIORITY_MATRIX[(impact, urgency)]
-    resp_h, res_h = C.SLA_TARGETS[priority]
+    priority = D.PRIORITY_MATRIX[(impact, urgency)]
+    resp_h, res_h = D.SLA_TARGETS[priority]
 
     age_days = rng.triangular(0, 90, 55)
     reported = now - timedelta(days=age_days)
@@ -496,8 +493,8 @@ def build_ticket(idx, now, itype, tower):
         response_met = None
         resolution_sla = None
 
-    l1 = rng.choice(C.L1_ANALYSTS)[0]
-    l2 = rng.choice(C.L2_ANALYSTS[tower]) if escalated else None
+    l1 = rng.choice(D.L1_ANALYSTS)[0]
+    l2 = rng.choice(D.L2_ANALYSTS[tower]) if escalated else None
     reopened = "Yes" if (done and rng.random() < 0.042) else "No"
 
     return {
@@ -513,11 +510,11 @@ def build_ticket(idx, now, itype, tower):
         "l1": l1, "l2": l2, "reopened": reopened,
         # The escalation gate: all three of these must be present on every
         # escalated ticket, which is the whole point of the gate.
-        "escalation_reason": rng.choice(C.SELECT_FIELDS["Escalation Reason"]) if escalated else None,
+        "escalation_reason": rng.choice(D.SELECT_FIELDS["Escalation Reason"]) if escalated else None,
         "troubleshooting": rng.choice(NOTES_FOR[itype]) if escalated else None,
         "kb": rng.choice(["Yes - article applied", "Yes - none found",
                           "Yes - none found", "No"]) if escalated else None,
-        "root_cause": rng.choice(C.SELECT_FIELDS["Root Cause"]) if done and not cancelled else None,
+        "root_cause": rng.choice(D.SELECT_FIELDS["Root Cause"]) if done and not cancelled else None,
         "resolution_code": (rng.choice(res_codes) if done and not cancelled
                             else ("Withdrawn by requester" if cancelled else None)),
         "comment": rng.choice(K.COMMENTS) if rng.random() < 0.45 else None,
@@ -533,7 +530,7 @@ def fields_payload(t, F, settable):
         "project": {"key": PROJECT},
         "issuetype": {"name": t["jtype"]},
         "summary": f"[{t['tower'].split(' ')[0]}] {t['title']}",
-        "priority": {"name": PRIORITY_NAME[t["priority"]]},
+        "priority": {"name": D.PRIORITY_LABELS[t["priority"]]},
         "description": adf(
             f"{t['detail']}\n\n"
             f"Reported via {t['channel']} at {t['reported'].strftime('%Y-%m-%d %H:%M')}.\n\n"
@@ -707,7 +704,7 @@ def ensure_resolution_on_screens(j, state):
     not on the ITSM screens, so a plain PUT comes back
     "Field 'resolution' cannot be set. It is not on the appropriate screen".
 
-    OPS SAFETY: ITSM's screen set is computed from .jsm_state.json and OPS's is
+    OPS SAFETY: ITSM's screen set is computed from state/.jsm_state.json and OPS's is
     resolved live from its own issue type screen scheme; the two are asserted
     disjoint before a single write. At the time of writing ITSM owns 10195-10203
     and OPS owns 10013-10014, so nothing here can reach OPS.
@@ -882,7 +879,7 @@ def main():
     # records the count and refuses to continue against a different one.
     prng = random.Random(SEED ^ (args.count * 7919))
     types = allocate(TYPE_MIX, args.count, prng)
-    towers = allocate(C.TOWERS, args.count, prng)
+    towers = allocate(D.TOWERS, args.count, prng)
     tickets = [build_ticket(i, now, types[i], towers[i]) for i in range(args.count)]
 
     log(f"\n== modelled distribution across {len(tickets)} tickets ==")

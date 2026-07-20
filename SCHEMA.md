@@ -1,7 +1,7 @@
 # Field schema, permission scheme and automation rules
 
 Live reference for the `OPS` project on `singhaditya21.atlassian.net`. Field IDs are
-real — built by `scripts/01_build.py` and verified against the instance on 2026-07-20.
+real — built by `jira_config/build.py` and verified against the instance on 2026-07-20.
 
 ---
 
@@ -158,9 +158,9 @@ Automation's JSON export/import. Recipes below are exact.
 
 | Item | Route | Verified |
 |---|---|---|
-| Project, custom fields, contexts, options | REST | ✅ built by `01_build.py` |
+| Project, custom fields, contexts, options | REST | ✅ built by `jira_config/build.py` |
 | Screens and field associations | REST | ✅ 40 associations added |
-| Statuses (all 11) | REST | ✅ built by `02_workflow.py` |
+| Statuses (all 11) | REST | ✅ built by `jira_config/workflow.py` |
 | Workflow with 13 transitions | REST | ✅ created and bound via workflow scheme |
 | **Escalation-gate validator** | **UI only** | ❌ `system:field-required` rejected by `workflows/create` with "Rule cannot be applied to this type or is unsupported" — three payload variants tried |
 | Issues, transitions, comments | REST | ✅ 420 seeded, 0 failures |

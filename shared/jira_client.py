@@ -87,6 +87,16 @@ def log(msg):
     print(msg, flush=True)
 
 
+def warn(msg):
+    """Diagnostics go to stderr so stdout stays a machine-diffable report body.
+
+    Field-ambiguity notices fire or not depending on which instance you point at.
+    On stdout they would silently prepend a line to every report, which breaks
+    golden-output diffs and any cron capture that treats stdout as the artifact.
+    """
+    print(msg, file=sys.stderr, flush=True)
+
+
 def require_env():
     missing = [v for v in ("JIRA_SITE", "JIRA_EMAIL", "JIRA_TOKEN") if not os.environ.get(v)]
     if missing:

@@ -9,7 +9,7 @@ The timeline lives in the seeder-controlled `Reported At` / `Resolved At` fields
 than Jira's read-only `created`, so trend charts show 90 days of history instead of one
 vertical spike on the day the seeder ran. Every filter and dashboard keys off those.
 
-Usage:  python3 scripts/03_seed.py [--count 420] [--dry-run]
+Usage:  python3 -m fixtures.seed [--count 420] [--dry-run]
 """
 
 import argparse
@@ -18,16 +18,15 @@ import random
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-from jira_client import Jira, adf, log, require_env  # noqa: E402
-import config as C  # noqa: E402
+from shared.jira_client import Jira, adf, log, require_env
+from shared import domain as D
+from jira_config import jira_schema as S
+from jira_config import BUILD_STATE as STATE
+from jira_config import merge_state
+from fixtures import catalog as K
 
-STATE = Path(__file__).parent / ".build_state.json"
 SEED = 20260720  # fixed so re-runs are reproducible
-
-import catalog as K  # noqa: E402
 
 
 NOTES_FOR = {
@@ -52,12 +51,12 @@ def business_hours_offset(rng, dt, hours):
 
 
 def build_ticket(rng, idx, now):
-    tower = weighted(rng, C.TOWERS)
+    tower = weighted(rng, D.TOWERS)
     itype = weighted(rng, K.TYPE_MIX)
     pool = K.BY_TYPE[itype].get(tower) or K.BY_TYPE["Incident"][tower]
     title, detail, base_impact, base_urgency = rng.choice(pool)
     esc_odds, time_mult, res_codes = K.TYPE_BEHAVIOUR[itype]
-    channel = weighted(rng, C.INTAKE_CHANNELS)
+    channel = weighted(rng, D.INTAKE_CHANNELS)
     # Changes and problems are planned work - they do not arrive by phone.
     if itype in ("Change", "Problem"):
         channel = "Portal"
@@ -78,8 +77,8 @@ def build_ticket(rng, idx, now):
     if rng.random() < 0.08:                        # natural variance either way
         impact = rng.choice(["High", "Medium", "Low"])
 
-    priority = C.PRIORITY_MATRIX[(impact, urgency)]
-    resp_h, res_h = C.SLA_TARGETS[priority]
+    priority = D.PRIORITY_MATRIX[(impact, urgency)]
+    resp_h, res_h = D.SLA_TARGETS[priority]
 
     # 90 days of history, weekday-heavy, with a mild business-hours bias
     age_days = rng.triangular(0, 90, 55)
@@ -144,8 +143,8 @@ def build_ticket(rng, idx, now):
         response_met = None
         resolution_sla = None
 
-    l1 = rng.choice(C.L1_ANALYSTS)[0]
-    l2 = rng.choice(C.L2_ANALYSTS[tower]) if escalated else None
+    l1 = rng.choice(D.L1_ANALYSTS)[0]
+    l2 = rng.choice(D.L2_ANALYSTS[tower]) if escalated else None
     reopened = "Yes" if (done and rng.random() < 0.042) else "No"
 
     return {
@@ -156,10 +155,10 @@ def build_ticket(rng, idx, now):
         "escalated_at": escalated_at, "resolved_at": resolved_at,
         "response_sla": response_met, "resolution_sla": resolution_sla,
         "l1": l1, "l2": l2, "reopened": reopened,
-        "escalation_reason": rng.choice(C.SELECT_FIELDS["Escalation Reason"]) if escalated else None,
+        "escalation_reason": rng.choice(D.SELECT_FIELDS["Escalation Reason"]) if escalated else None,
         "troubleshooting": rng.choice(NOTES_FOR[itype]) if escalated else None,
         "kb": rng.choice(["Yes - article applied", "Yes - none found", "Yes - none found", "No"]) if escalated else None,
-        "root_cause": rng.choice(C.SELECT_FIELDS["Root Cause"]) if done and status != "Cancelled" else None,
+        "root_cause": rng.choice(D.SELECT_FIELDS["Root Cause"]) if done and status != "Cancelled" else None,
         "resolution_code": (rng.choice(res_codes) if done and status != "Cancelled"
                             else ("Withdrawn by requester" if status == "Cancelled" else None)),
         "comment": rng.choice(K.COMMENTS) if rng.random() < 0.45 else None,
@@ -176,7 +175,7 @@ def jira_dt(dt):
 
 def fields_payload(t, F, settable):
     f = {
-        "project": {"key": C.PROJECT_KEY},
+        "project": {"key": S.PROJECT_KEY},
         "issuetype": {"name": t["itype"]},
         "summary": f"[{t['tower'].split(' ')[0]}] {t['title']}",
         # The derived priority must land on the real field, not just the description,
@@ -274,13 +273,23 @@ def main():
 
     require_env()
     j = Jira()
-    state = json.loads(STATE.read_text())
+    # Every other state reader guards this; seed used to not, so a fresh clone
+    # or an unbuilt instance got a bare pathlib traceback instead of the one
+    # instruction that fixes it.
+    if not STATE.exists():
+        sys.exit("%s not found - run python3 -m jira_config.build first." % STATE)
+    try:
+        state = json.loads(STATE.read_text())
+    except (OSError, ValueError) as e:
+        sys.exit("cannot read %s: %s" % (STATE, e))
+    if "fields" not in state:
+        sys.exit("%s has no 'fields' - re-run python3 -m jira_config.build." % STATE)
     F = state["fields"]
     rng = random.Random(SEED)
     now = datetime.now(timezone.utc)
 
     # Only send fields the create screen actually accepts, or every issue 400s.
-    meta = j.get(f"/rest/api/3/issue/createmeta?projectKeys={C.PROJECT_KEY}"
+    meta = j.get(f"/rest/api/3/issue/createmeta?projectKeys={S.PROJECT_KEY}"
                  f"&expand=projects.issuetypes.fields")
     settable = set()
     for p in meta.get("projects", []):
@@ -328,7 +337,7 @@ def main():
     for f in failed[:3]:
         log(f"    ! {f}")
     state["seeded"] = len(ok)
-    STATE.write_text(json.dumps(state, indent=2))
+    merge_state(STATE, state, ("seeded",), dry=args.dry_run)
 
 
 if __name__ == "__main__":

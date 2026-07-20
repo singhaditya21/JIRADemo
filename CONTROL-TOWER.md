@@ -99,14 +99,17 @@ in `OPS` it is genuinely in the changelog.
 Both **pre-date** the JSM work and neither was introduced by it. Both were left alone
 because writing to `OPS` needs your explicit sign-off.
 
-1. **Dashboard 10001 renders as 12 blank gadgets.** All 12 return HTTP 404 for their
-   config property — none is bound to a filter. `04_views.py` never passes a filter id and
-   its gadget block is not idempotent (3 unbound gadgets appended per run × 4 runs = 12).
-   **Do not open the `OPS` dashboard during the demo.** Show the saved filters instead, or
-   bind the gadgets tonight via `PUT /rest/api/3/dashboard/10001/items/{id}/properties/config`
-   with `{"filterId":"filter-10035"}` — that endpoint is REST-writable and was used
-   successfully on the `ITSM` dashboard. Delete the 9 surplus gadgets first, and do **not**
-   simply re-run `04_views.py`.
+1. **Dashboard 10001 rendered as 12 blank gadgets — FIXED, and the cause is now fixed too.**
+   All 12 returned HTTP 404 for their config property because `jira_config/views.py`
+   never passed a filter id, and its gadget block appended 3 more unbound gadgets per
+   run (× 4 runs = 12). All 12 were bound by `jira_config/repair.py` (CLAIMS #53), and
+   `views.py` has since been rewritten to reconcile rather than append — it matches
+   gadgets by title, binds each to its filter, and adds only what is missing.
+   A dry run against the live dashboard now reports **12 matched, 0 created, 0 updated,
+   0 unclaimed, 0 writes issued**, so re-running it is safe and the old "do not re-run"
+   warning no longer applies to the gadgets.
+   The filters reconcile clean too: 20 unchanged, 0 writes. Always run
+   `python3 -m jira_config.views --dry-run` first regardless.
 2. **358 Done tickets carry no `resolution`,** so every Closed `OPS` ticket displays
    "Resolution: Unresolved". No `OPS` filter depends on the field (all 20 key off
    `statusCategory != Done`), so the queues are unaffected — the exposure is the issue
@@ -114,9 +117,15 @@ because writing to `OPS` needs your explicit sign-off.
    no `jira.issue.editable=false` property so it needs no unlock step. **Requires your
    sign-off before anyone writes to `OPS`.**
 
-Two lesser items: filters 10053 and 10054 still use `-54h` and `-90h`, derived from the old
-SLA targets (P3 72h, P4 120h). Current `config.py` targets (P3 24h, P4 40h) give `-18h` and
-`-30h`, so they under-report at-risk work roughly 3×. And 15 of the 171 L2-tagged tickets
+One lesser item — and a correction. Filters 10053 and 10054 use `-54h` and `-90h`, and
+**those values are correct**: `shared/domain.py` states P3/P4 targets in *business* hours
+(24h and 40h), the filter clause is evaluated in *elapsed* hours, and 24 business hours is
+72 calendar hours — so 75% of it is 54h. The earlier reading of this as "stale thresholds
+that under-report 3×" compared the two clocks without converting and is retracted as
+CLAIMS #55. `jira_config/views.py` carried the same unit error in its generator until it
+was made idempotent; it now converts by `24 / (BUSINESS_DAY span)` and reproduces `-54h`
+and `-90h` exactly, so a run changes nothing.
+And 15 of the 171 L2-tagged tickets
 never passed through the `Escalated to L2` status — a small version of the `ITSM` problem in
 §5, and a reason to open one of the three keys named above rather than a random L2 ticket.
 
@@ -149,7 +158,7 @@ never passed through the `Escalated to L2` status — a small version of the `IT
 | | | | KB Gap – escalated, no article | 86 |
 
 The first seven are seeded by the ITIL template; the remaining twelve were built by
-`12_jsm_views.py`.
+`jira_config/jsm_views.py`.
 
 ### Dashboard 10035 — what each gadget proves
 
@@ -176,7 +185,7 @@ filters and the distributions above were re-read from the live instance afterwar
 Filters `10064`–`10083` mirror the `OPS` set with `ITSM -` names, plus two added during
 repair: `10084` (all issues, project-wide) and `10085` (all open work). URL pattern
 `https://singhaditya21.atlassian.net/issues/?filter=NNNNN`. Full id map in
-`scripts/.jsm_state.json`.
+`jira_config/state/.jsm_state.json`.
 
 ### SLA in `ITSM`
 
@@ -194,7 +203,7 @@ and do not let anyone sort a queue by an SLA column.** Retargeting the four nati
 UI-only (§4).
 
 Note also: the `ITSM` clock model is **24×7 elapsed for all priorities**, recorded in
-`scripts/.jsm_state.json` under `sla_clock`. This differs from `config.py` `SLA_CLOCK`
+`jira_config/state/.jsm_state.json` under `sla_clock`. This differs from `shared/domain.py` `SLA_CLOCK`
 (business hours for P3/P4), which is what `OPS` uses. **Do not narrate a business-hours
 split when demoing `ITSM`.**
 

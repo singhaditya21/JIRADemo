@@ -103,8 +103,8 @@ true.
 
 ```bash
 source your-env-file
-python3 scripts/08_sla.py --dry-run        # SLA still computes cleanly
-python3 scripts/07_baseline.py --days 90   # the six metrics
+python3 -m app.cli sla --project OPS --dry-run    # SLA still computes cleanly
+python3 -m app.cli metrics --project OPS --days 90  # the six metrics
 ```
 
 Expected: 420 issues, resolution attainment ~78.9%, response ~96.6%, FTR 61.8%.
@@ -175,7 +175,7 @@ for either. Automation rules version-control through JSON export/import.
 
 ## 8. Do not do this tonight
 
-- Do not run `99_reset.py` unless you also reseed and re-run `08_sla.py`. The demo state
+- Do not run `fixtures/reset.py` unless you also reseed and re-run `app/sla_engine.py`. The demo state
   is currently verified good.
 - Do not rebuild in JSM.
 - Do not add the remaining five automation rules. Nothing in the run sheet needs them.

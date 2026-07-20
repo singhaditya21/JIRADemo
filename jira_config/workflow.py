@@ -5,52 +5,59 @@ Status creation is well-supported. Workflow creation via the Cloud API is strict
 so this attempts it once and reports honestly rather than pretending. If it fails the
 seeder falls back to the statuses that do exist, and the workflow is built in the UI
 from the transition table printed at the end.
+
+Usage:  python3 -m jira_config.workflow [--dry-run]
+
+This module owns the `statuses` and `workflow_created` state keys and writes only
+those; see jira_config.merge_state for why that matters.
 """
 
-import json
-import sys
+import argparse
 import uuid
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-from jira_client import Jira, log, require_env  # noqa: E402
-import config as C  # noqa: E402
+from shared.jira_client import Jira, log, require_env
+from shared import domain as D
+from jira_config import jira_schema as S
+from jira_config import BUILD_STATE as STATE
+from jira_config import merge_state, read_state
+from jira_config.reconcile import Writer
 
-STATE = Path(__file__).parent / ".build_state.json"
-
-CATEGORY = {"new": "TODO", "indeterminate": "IN_PROGRESS", "done": "DONE"}
+OWNED_KEYS = ("statuses", "workflow_created")
 
 
-def cleanup_probe(j):
-    found = j.try_get("/rest/api/3/statuses/search?searchString=OPS%20Probe%20Status", {})
+def cleanup_probe(w):
+    found = w.j.try_get("/rest/api/3/statuses/search?searchString=OPS%20Probe%20Status", {})
     for v in (found or {}).get("values", []):
         if v["name"] == "OPS Probe Status":
             try:
-                j.delete(f"/rest/api/3/statuses?id={v['id']}")
+                w.delete(f"/rest/api/3/statuses?id={v['id']}")
                 log(f"  removed probe status {v['id']}")
             except RuntimeError as e:
                 log(f"  could not remove probe status: {e}")
 
 
-def ensure_statuses(j):
+def ensure_statuses(w):
+    j = w.j
     have = {}
     page = j.try_get("/rest/api/3/statuses/search?maxResults=200", {}) or {}
     for v in page.get("values", []):
         have[v["name"]] = v["id"]
 
     ids, to_create = {}, []
-    for name, cat in C.STATUSES:
+    for name, cat in D.STATUSES:
         if name in have:
             ids[name] = have[name]
         else:
-            to_create.append({"name": name, "statusCategory": CATEGORY[cat],
+            to_create.append({"name": name, "statusCategory": S.STATUS_CATEGORY[cat],
                               "description": f"OPS tower - {name}"})
     if to_create:
-        res = j.post("/rest/api/3/statuses",
+        res = w.post("/rest/api/3/statuses",
                      {"scope": {"type": "GLOBAL"}, "statuses": to_create})
-        for s in res:
+        # Under --dry-run the Writer returns a placeholder rather than a list of
+        # created statuses; keep the names visible without inventing ids.
+        for s in (res if isinstance(res, list) else []):
             ids[s["name"]] = s["id"]
-    for name, _ in C.STATUSES:
+    for name, _ in D.STATUSES:
         log(f"  {name:<20} {ids.get(name, 'MISSING')}")
     return ids
 
@@ -82,10 +89,10 @@ def sref(name):
 GATE_FIELDS = ["Escalation Reason", "Troubleshooting Performed", "KB Article Checked"]
 
 
-def attempt_workflow(j, status_ids, field_ids):
+def attempt_workflow(w, status_ids, field_ids):
     """One careful attempt. Returns True on success."""
     statuses = [{"statusReference": sref(n), "layout": {"x": (i % 4) * 220.0,
-                 "y": (i // 4) * 140.0}} for i, (n, _) in enumerate(C.STATUSES)]
+                 "y": (i // 4) * 140.0}} for i, (n, _) in enumerate(D.STATUSES)]
 
     transitions = []
     for idx, (name, ttype, frm, to) in enumerate(TRANSITIONS, start=1):
@@ -109,9 +116,9 @@ def attempt_workflow(j, status_ids, field_ids):
         "scope": {"type": "GLOBAL"},
         # `id` present => reference the existing global status instead of creating it
         "statuses": [
-            {"statusReference": sref(n), "id": status_ids[n], "name": n,
-             "statusCategory": CATEGORY[cat], "description": f"OPS tower - {n}"}
-            for n, cat in C.STATUSES
+            {"statusReference": sref(n), "id": status_ids.get(n), "name": n,
+             "statusCategory": S.STATUS_CATEGORY[cat], "description": f"OPS tower - {n}"}
+            for n, cat in D.STATUSES
         ],
         "workflows": [{
             "name": "OPS L1/L2 Support Workflow",
@@ -121,39 +128,56 @@ def attempt_workflow(j, status_ids, field_ids):
         }],
     }
     try:
-        res = j.post("/rest/api/3/workflows/create", body)
-        log(f"  workflow created: {[w['name'] for w in res.get('workflows', [])]}")
+        res = w.post("/rest/api/3/workflows/create", body)
+        if w.dry:
+            log("  [dry] workflow creation not attempted")
+            return None
+        log(f"  workflow created: {[x['name'] for x in res.get('workflows', [])]}")
         return True
     except RuntimeError as e:
         log(f"  workflow creation FAILED\n    {str(e)[:400]}")
         return False
 
 
-def main():
+def add_arguments(ap):
+    ap.add_argument("--dry-run", action="store_true",
+                    help="log every write without issuing it, and write no state")
+    return ap
+
+
+def main(argv=None):
+    args = add_arguments(
+        argparse.ArgumentParser(prog="jira_config.workflow")).parse_args(argv)
+
     require_env()
     j = Jira()
-    state = json.loads(STATE.read_text()) if STATE.exists() else {}
+    w = Writer(j, dry=args.dry_run)
+    state = read_state(STATE)
 
     log("== cleanup ==")
-    cleanup_probe(j)
+    cleanup_probe(w)
 
     log("== statuses ==")
-    status_ids = ensure_statuses(j)
+    status_ids = ensure_statuses(w)
     state["statuses"] = status_ids
 
     log("== workflow ==")
-    ok = attempt_workflow(j, status_ids, state.get('fields', {}))
-    state["workflow_created"] = ok
-    STATE.write_text(json.dumps(state, indent=2))
+    ok = attempt_workflow(w, status_ids, state.get('fields', {}))
+    # A dry run learns nothing about whether creation would succeed, so it must
+    # not overwrite the recorded answer with a guess.
+    if ok is not None:
+        state["workflow_created"] = ok
+    merge_state(STATE, state, OWNED_KEYS, dry=args.dry_run)
+    log("\n%d writes%s" % (w.writes, " [DRY RUN - none applied]" if args.dry_run else ""))
 
-    if not ok:
+    if ok is False:
         log("\n  Build this in the UI instead — transition table:")
         log(f"  {'TRANSITION':<28}{'FROM':<18}{'TO':<18}VALIDATORS")
         for name, ttype, frm, to in TRANSITIONS:
             v = "3 required fields" if name == "Escalate to L2" else (
                 "none - MIM role only" if "major" in name else "-")
             log(f"  {name:<28}{(frm or ttype.lower()):<18}{to:<18}{v}")
-    log("\nnext: python3 scripts/03_seed.py")
+    log("\nnext: python3 -m fixtures.seed")
 
 
 if __name__ == "__main__":

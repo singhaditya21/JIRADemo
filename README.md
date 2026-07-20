@@ -19,7 +19,12 @@ Design and build approach for an L1/L2 IT support tower ticket management system
 | [PILOT.md](PILOT.md) | Measured baseline, pilot tower selection, the two-week loop, exit criteria. |
 | [ROLLOUT.md](ROLLOUT.md) | Wave sequencing, the KB compounding loop, change management, go/no-go gates. |
 | `automation/` | The seven rules as specifications, with build order. |
-| `scripts/` | The build. See below. |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | **The five packages, why they are separate, and where a new file goes.** Read before adding code. |
+| `shared/` | Vendor-neutral tower model, Jira HTTP client, runtime field resolver. Imports stdlib only. |
+| `jira_config/` | Infrastructure as code — declarative, idempotent, run on change. |
+| `fixtures/` | Demo/test seed data. Never runs in production. |
+| `app/` | The application layer — SLA engine and metrics. Imports no `jira_config`, reads no build state. |
+| `tools/` | Repo hygiene, incl. the consistency checker. |
 
 ## The live app
 
@@ -51,43 +56,73 @@ every global object rather than duplicating it (same 20 fields, same priority sc
 source your-env-file             # JIRA_SITE, JIRA_EMAIL, JIRA_TOKEN
 
 # OPS — Jira Software
-python3 scripts/01_build.py      # project, fields, screens      (idempotent)
-python3 scripts/02_workflow.py   # statuses + workflow           (idempotent)
-python3 scripts/03_seed.py       # 420 tickets   --dry-run first (reproducible: fixed seed)
-python3 scripts/04_views.py      # filters + dashboard           (gadget block NOT idempotent)
-python3 scripts/05_issuetypes.py # Incident/Request/Change/Problem
-python3 scripts/06_priority.py   # P1-P4 priorities + scheme
-python3 scripts/07_baseline.py --by-tower   # measure the six scoreboard metrics
-python3 scripts/08_sla.py        # recompute SLA from the timeline, not seeded values
-python3 scripts/99_reset.py      # wipe issues so you can rehearse again
+python3 -m jira_config.build      # project, fields, screens      (idempotent)
+python3 -m jira_config.workflow   # statuses + workflow           (idempotent)
+python3 -m fixtures.seed          # 420 tickets   --dry-run first (reproducible: fixed seed)
+python3 -m jira_config.views      # filters + dashboard           (idempotent; --dry-run)
+python3 -m jira_config.issuetypes # Incident/Request/Change/Problem
+python3 -m jira_config.priority   # P1-P4 priorities + scheme
+python3 -m jira_config.apply      # all five of the above, in order
+python3 -m app.cli metrics --project OPS --by-tower   # the six scoreboard metrics
+python3 -m app.cli sla --project OPS   # recompute SLA from the timeline, not seeded values
+python3 -m fixtures.reset         # wipe issues so you can rehearse again
 
-# ITSM — Jira Service Management (writes only scripts/.jsm_state.json)
-python3 scripts/10_jsm_build.py  # service project, reuse fields + priorities (idempotent)
-python3 scripts/11_jsm_seed.py   # 420 tickets   --dry-run / --pilot N / --backfill-only
-python3 scripts/12_jsm_views.py  # 12 agent queues, 22 filters, dashboard 10035
+# ITSM — Jira Service Management (writes only jira_config/state/.jsm_state.json)
+python3 -m jira_config.jsm_build  # service project, reuse fields + priorities (idempotent)
+python3 -m fixtures.jsm_seed      # 420 tickets   --dry-run / --pilot N / --backfill-only
+python3 -m jira_config.jsm_views  # 12 agent queues, 22 filters, dashboard 10035
 ```
 
-The seeds use a fixed RNG seed, so the same data comes back every time. `99_reset.py` exists
+The seeds use a fixed RNG seed, so the same data comes back every time. `fixtures/reset.py` exists
 because you will rehearse this four or five times.
 
-**One exception to idempotency: the gadget block in `04_views.py` is not idempotent** — it
-appends unbound gadgets on every run, which is why `OPS` dashboard 10001 now holds 12 blank
-ones. Do not re-run it to fix them.
+**`jira_config/views.py` is idempotent, gadgets included.** Re-running it reconciles:
+existing gadgets are matched by title, bound to their filter and left in place; only
+missing ones are added; nothing is blind-appended. A dry run against the current
+instance reports `0 write(s) issued`. The old append-only block is what left `OPS`
+dashboard 10001 with 12 blank gadgets (CLAIMS #53, since repaired).
+
+Run `python3 -m jira_config.views --dry-run` first — it prints exactly which filters
+and gadgets would change. Against the current instance it reports **20 filters
+unchanged, 12 gadgets matched, 0 writes**.
+
+Getting there fixed a real unit bug in the at-risk filters. `SLA_TARGETS` states
+`P3`/`P4` in **business** hours, but `"Reported At" <= -Nh` is evaluated in **elapsed**
+hours; the generator fed one into the other, so a 24-business-hour `P3` target
+(= 72 calendar hours) produced `-18h` instead of `-54h` and would have flagged work
+at-risk three times too early. `P1`/`P2` run on the 24x7 clock, factor 1, which is why
+only `P3`/`P4` ever looked wrong. The live filters were right; the generator was not —
+this is the error recorded and retracted as CLAIMS #55.
 
 **Seeded history spans 2026-04-24 to 2026-07-15 even though every issue was created on
 one day.** Jira's `created` is read-only over REST, so the real timeline lives in a
 `Reported At` datetime field and every filter and gadget reads that instead. Without this,
 all 420 tickets stack on a single day and every trend chart is one vertical spike.
 
-**Change the towers to the real ones** by editing `TOWERS` in `scripts/config.py` and
+**Change the towers to the real ones** by editing `TOWERS` in `shared/domain.py` and
 re-running build and seed. That is the single highest-value change available.
+
+## The five packages
+
+`shared/` (the model and the Jira client) · `jira_config/` (infrastructure as code) ·
+`fixtures/` (demo data) · `app/` (SLA engine and metrics) · `tools/` (repo hygiene).
+Dependencies run one way: everything imports `shared/`, `shared/` imports only stdlib.
+
+The load-bearing rule is that **`app/` never imports `jira_config` and never reads build
+state** — it resolves custom-field ids by name at runtime. That is what lets the metrics
+and SLA engine run against any instance built to this design, including one built by hand
+in the UI. Copy `app/` and `shared/` into an empty directory and the SLA engine still
+returns the same 420 issues and 78.9% (CLAIMS #65).
+
+**[ARCHITECTURE.md](ARCHITECTURE.md) is the full version, including where a new file
+goes.** Read it before adding code.
 
 ## Working rules
 
 Four artifacts state one argument, so corrections drift. Two mechanisms prevent it:
 
 1. **[CLAIMS.md](CLAIMS.md) is the source of truth for facts.** Claims are `VERIFIED`, `UNVERIFIED`, `PLACEHOLDER` or `RETRACTED`. A claim not in the register does not belong in a deliverable.
-2. **`python3 scripts/check_consistency.py` before committing.** It scans all six documents *and the deck* for retracted claims and for claims missing their required caveat.
+2. **`python3 tools/check_consistency.py` before committing.** It scans every shipped document *and the deck* for retracted claims and for claims missing their required caveat.
 
 Both exist because a claim was once asserted in four places before being checked, and shipped wrong — recorded as R1 in the register.
 

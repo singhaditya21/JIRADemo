@@ -6,21 +6,17 @@ the pilot to establish a baseline, then weekly during the pilot to see movement.
 
 Every window is computed against `Reported At`, not `created` - see SCHEMA.md.
 
-Usage:  python3 scripts/07_baseline.py [--days 90] [--by-tower] [--json out.json]
+Usage:  python3 -m app.cli metrics --project OPS [--days 90] [--by-tower] [--json out.json]
 """
 
 import argparse
 import json
-import sys
-from collections import defaultdict
+import os
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-from jira_client import Jira, log, require_env  # noqa: E402
-import config as C  # noqa: E402
-
-STATE = Path(__file__).parent / ".build_state.json"
-P = C.PROJECT_KEY
+from shared.jira_client import Jira, log, require_env, warn
+from shared import domain as D
+from shared import fields as FIELDS
 
 
 def count(j, jql):
@@ -31,9 +27,18 @@ def pct(n, d):
     return (100.0 * n / d) if d else 0.0
 
 
-def measure(j, window, scope=""):
-    """scope is an extra JQL clause, e.g. ' AND Tower = "Database"'."""
-    base = f'project = {P}{scope} AND "Reported At" >= -{window}d'
+def measure(j, project, F, window, scope=""):
+    """scope is an extra JQL clause, e.g. ' AND "Tower" = "Database"'.
+
+    Field names go through F.jql() rather than being written out by hand. For an
+    unambiguous field that returns the quoted name and the JQL reads exactly as
+    before; for a field whose display name is duplicated on the instance it
+    returns cf[id], because Jira's tie-break between two identically named fields
+    is undocumented. Hand-writing a field name here would silently reintroduce
+    that ambiguity into the one place it is hardest to notice - a count that is
+    wrong but plausible.
+    """
+    base = f'project = {project}{scope} AND {F.jql("Reported At")} >= -{window}d'
     m = {}
 
     m["volume"] = count(j, base)
@@ -43,44 +48,40 @@ def measure(j, window, scope=""):
     # right thing.
     done = f'{base} AND statusCategory = Done AND issuetype != Problem'
     m["closed"] = count(j, done)
-    m["ftr"] = count(j, f'{done} AND "Support Tier" = L1')
+    m["ftr"] = count(j, f'{done} AND {F.jql("Support Tier")} = L1')
     m["ftr_pct"] = pct(m["ftr"], m["closed"])
 
-    m["escalated"] = count(j, f'{base} AND "Support Tier" = L2')
+    m["escalated"] = count(j, f'{base} AND {F.jql("Support Tier")} = L2')
     m["escalation_pct"] = pct(m["escalated"], m["volume"])
 
-    m["reopened"] = count(j, f'{base} AND Reopened = Yes')
+    m["reopened"] = count(j, f'{base} AND {F.jql("Reopened")} = Yes')
     m["reopen_pct"] = pct(m["reopened"], m["closed"])
 
-    met = count(j, f'{base} AND "Resolution SLA" = Met')
-    breached = count(j, f'{base} AND "Resolution SLA" = Breached')
+    met = count(j, f'{base} AND {F.jql("Resolution SLA")} = Met')
+    breached = count(j, f'{base} AND {F.jql("Resolution SLA")} = Breached')
     m["sla_met"], m["sla_breached"] = met, breached
     m["sla_pct"] = pct(met, met + breached)
 
-    resp_met = count(j, f'{base} AND "Response SLA" = Met')
-    resp_br = count(j, f'{base} AND "Response SLA" = Breached')
+    resp_met = count(j, f'{base} AND {F.jql("Response SLA")} = Met')
+    resp_br = count(j, f'{base} AND {F.jql("Response SLA")} = Breached')
     m["response_pct"] = pct(resp_met, resp_met + resp_br)
 
-    m["aged_14d"] = count(j, f'project = {P}{scope} AND statusCategory != Done '
-                             f'AND "Reported At" <= -14d')
-    m["open"] = count(j, f'project = {P}{scope} AND statusCategory != Done')
+    m["aged_14d"] = count(j, f'project = {project}{scope} AND statusCategory != Done '
+                             f'AND {F.jql("Reported At")} <= -14d')
+    m["open"] = count(j, f'project = {project}{scope} AND statusCategory != Done')
 
     # The KB gap is the lever that lifts L1's ceiling over time.
-    m["kb_gap"] = count(j, f'{base} AND "KB Article Checked" = "Yes - none found"')
+    m["kb_gap"] = count(j, f'{base} AND {F.jql("KB Article Checked")} = "Yes - none found"')
     m["kb_gap_pct"] = pct(m["kb_gap"], m["escalated"])
 
-    m["shadow_chat"] = count(j, f'{base} AND "Intake Channel" = Chat')
+    m["shadow_chat"] = count(j, f'{base} AND {F.jql("Intake Channel")} = Chat')
     return m
 
 
-TARGETS = {"ftr_pct": (65, "ge"), "reopen_pct": (5, "le"),
-           "sla_pct": (95, "ge"), "response_pct": (95, "ge")}
-
-
 def verdict(key, value):
-    if key not in TARGETS:
+    if key not in D.SCORECARD_TARGETS:
         return ""
-    target, direction = TARGETS[key]
+    target, direction = D.SCORECARD_TARGETS[key]
     ok = value >= target if direction == "ge" else value <= target
     return f"  [{'PASS' if ok else 'GAP '}] target {'>=' if direction=='ge' else '<='}{target}%"
 
@@ -105,27 +106,48 @@ def report(label, m):
     log(f"  arrived via chat                {m['shadow_chat']:>6}   <- shadow support pulled in")
 
 
-def main():
-    ap = argparse.ArgumentParser()
+def add_arguments(ap):
+    # The project key is an ARGUMENT, not a constant. app/ cannot import
+    # jira_config.jira_schema, and that is the point: this script has to run
+    # against OPS, ITSM or a fresh instance without knowing which one it is.
+    ap.add_argument("--project", default=os.environ.get("JIRA_PROJECT"),
+                    help="Jira project key, e.g. OPS or ITSM (or set JIRA_PROJECT)")
     ap.add_argument("--days", type=int, default=90)
     ap.add_argument("--by-tower", action="store_true")
     ap.add_argument("--json", type=str)
-    args = ap.parse_args()
+    return ap
+
+
+def run(args):
+    if not args.project:
+        raise SystemExit("--project is required (or set JIRA_PROJECT)")
 
     require_env()
     j = Jira()
 
-    log(f"Baseline over the last {args.days} days, measured on 'Reported At'.")
+    # Resolve the schema by NAME before measuring anything. This script reads no
+    # build artifact and never did, but it used to query field names in JQL with
+    # no validation at all - against an instance missing a field, every count that
+    # depended on it came back 0 and the report looked merely disappointing rather
+    # than broken. Now it fails here, with the field named.
+    F = FIELDS.resolve(j)
+    for w in F.warnings():
+        warn("  ! " + w)
+
+    log(f"Baseline for {args.project} over the last {args.days} days, "
+        f"measured on 'Reported At'.")
     log("Targets are PLACEHOLDERS (CLAIMS.md #15) - replace them with a target set")
     log("from this baseline once it reflects a real organisation.")
 
-    out = {"window_days": args.days, "overall": measure(j, args.days)}
-    report(f"ALL TOWERS - last {args.days}d", out["overall"])
+    out = {"project": args.project, "window_days": args.days,
+           "overall": measure(j, args.project, F, args.days)}
+    report(f"{args.project} ALL TOWERS - last {args.days}d", out["overall"])
 
     if args.by_tower:
         out["towers"] = {}
-        for tower, _ in C.TOWERS:
-            m = measure(j, args.days, f' AND Tower = "{tower}"')
+        for tower, _ in D.TOWERS:
+            m = measure(j, args.project, F, args.days,
+                        f' AND {F.jql("Tower")} = "{tower}"')
             out["towers"][tower] = m
             report(tower, m)
 
@@ -142,6 +164,11 @@ def main():
     if args.json:
         Path(args.json).write_text(json.dumps(out, indent=2))
         log(f"\nwritten to {args.json}")
+
+
+def main(argv=None):
+    ap = add_arguments(argparse.ArgumentParser(prog="app.cli metrics"))
+    run(ap.parse_args(argv))
 
 
 if __name__ == "__main__":
