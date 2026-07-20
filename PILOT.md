@@ -48,12 +48,12 @@ fixing.
 
 | Tower | Volume | FTR | Escalation | SLA |
 |---|---|---|---|---|
-| **End User Computing** | **126** | **61.9%** | 41.3% | 81.9% |
-| Enterprise Applications | 101 | 62.7% | 37.6% | 83.1% |
-| Compute & Storage | 51 | 48.8% | 51.0% | 83.7% |
-| Network & Connectivity | 58 | 62.0% | 41.4% | 86.0% |
-| Database | 50 | 73.7% | 36.0% | 81.6% |
-| Cloud & Security | 34 | 62.1% | 38.2% | 65.5% |
+| **End User Computing** | **126** | **61.9%** | 41.3% | 81.4% |
+| Enterprise Applications | 101 | 62.7% | 37.6% | 78.5% |
+| Compute & Storage | 51 | 48.8% | 51.0% | 75.5% |
+| Network & Connectivity | 58 | 62.0% | 41.4% | 81.8% |
+| Database | 50 | 73.7% | 36.0% | 78.6% |
+| Cloud & Security | 34 | 62.1% | 38.2% | 71.0% |
 
 **Why not Compute & Storage**, which has the worst FTR at 48.8%? Volume is 51 over 90
 days — under a ticket a day. Two weeks of pilot would produce roughly ten tickets,
