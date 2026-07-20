@@ -1,0 +1,145 @@
+{
+  "$schema": "https://example.invalid/jira-automation-rule-spec-v1",
+  "_note": "SPECIFICATION, not a verified Jira export. Build in the rule builder, then export from Automation and replace this file. See automation/README.md.",
+  "ruleNumber": 1,
+  "name": "Derive priority from Impact x Urgency",
+  "state": "ENABLED",
+  "projectScope": [
+    "OPS"
+  ],
+  "trigger": {
+    "type": "field-value-changed",
+    "fields": [
+      "customfield_10004",
+      "customfield_10044"
+    ]
+  },
+  "conditions": [
+    {
+      "type": "issue-fields-condition",
+      "field": "customfield_10004",
+      "operator": "is not empty"
+    },
+    {
+      "type": "issue-fields-condition",
+      "field": "customfield_10044",
+      "operator": "is not empty"
+    }
+  ],
+  "actions": [
+    {
+      "type": "if-else-block",
+      "branches": [
+        {
+          "if": {
+            "impact": "High",
+            "urgency": "High"
+          },
+          "then": {
+            "type": "edit-issue",
+            "fields": {
+              "priority": "P1 - Critical"
+            }
+          }
+        },
+        {
+          "if": {
+            "impact": "High",
+            "urgency": "Medium"
+          },
+          "then": {
+            "type": "edit-issue",
+            "fields": {
+              "priority": "P2 - High"
+            }
+          }
+        },
+        {
+          "if": {
+            "impact": "High",
+            "urgency": "Low"
+          },
+          "then": {
+            "type": "edit-issue",
+            "fields": {
+              "priority": "P3 - Medium"
+            }
+          }
+        },
+        {
+          "if": {
+            "impact": "Medium",
+            "urgency": "High"
+          },
+          "then": {
+            "type": "edit-issue",
+            "fields": {
+              "priority": "P2 - High"
+            }
+          }
+        },
+        {
+          "if": {
+            "impact": "Medium",
+            "urgency": "Medium"
+          },
+          "then": {
+            "type": "edit-issue",
+            "fields": {
+              "priority": "P3 - Medium"
+            }
+          }
+        },
+        {
+          "if": {
+            "impact": "Medium",
+            "urgency": "Low"
+          },
+          "then": {
+            "type": "edit-issue",
+            "fields": {
+              "priority": "P3 - Medium"
+            }
+          }
+        },
+        {
+          "if": {
+            "impact": "Low",
+            "urgency": "High"
+          },
+          "then": {
+            "type": "edit-issue",
+            "fields": {
+              "priority": "P3 - Medium"
+            }
+          }
+        },
+        {
+          "if": {
+            "impact": "Low",
+            "urgency": "Medium"
+          },
+          "then": {
+            "type": "edit-issue",
+            "fields": {
+              "priority": "P3 - Medium"
+            }
+          }
+        },
+        {
+          "if": {
+            "impact": "Low",
+            "urgency": "Low"
+          },
+          "then": {
+            "type": "edit-issue",
+            "fields": {
+              "priority": "P4 - Low"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "whyItExists": "Priority becomes a derivation, not a negotiation between requester emotion and analyst fatigue."
+}

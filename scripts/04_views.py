@@ -49,6 +49,31 @@ FILTERS = [
      "Demand that would otherwise be invisible. See PROBLEM.md 3.6."),
 ]
 
+# One L2 queue per tower. This is the JSM agent-queue equivalent: escalated work
+# lands in the tower's pool rather than on a named person, which is what the
+# escalation post-function is for.
+for _tower, _ in C.TOWERS:
+    FILTERS.append((
+        f"OPS - L2 queue: {_tower}",
+        f'project = {P} AND "Support Tier" = L2 AND Tower = "{_tower}" '
+        f'AND statusCategory != Done ORDER BY priority DESC, "Reported At" ASC',
+        f"Escalated {_tower} work awaiting or in progress at L2.",
+    ))
+
+# SLA at-risk: past 75% of the resolution target and still not done. Approximated
+# against Reported At because the native SLA engine needs Service Management.
+_PRIORITY_NAME = {"P1": "P1 - Critical", "P2": "P2 - High",
+                  "P3": "P3 - Medium", "P4": "P4 - Low"}
+for _p, (_resp, _res) in C.SLA_TARGETS.items():
+    _threshold = int(_res * 0.75)
+    FILTERS.append((
+        f"OPS - {_p} at risk (past 75% of target)",
+        f'project = {P} AND priority = "{_PRIORITY_NAME[_p]}" AND statusCategory != Done '
+        f'AND status NOT IN ("Pending Customer", "Pending Vendor") '
+        f'AND "Reported At" <= -{_threshold}h ORDER BY "Reported At" ASC',
+        f"{_p} tickets past {_threshold}h of a {_res}h resolution target, clock still running.",
+    ))
+
 GADGETS = [
     ("OPS - L1 queue (open)", "filter-results"),
     ("OPS - SLA breached (resolution)", "filter-results"),

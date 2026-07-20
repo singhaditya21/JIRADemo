@@ -1,5 +1,5 @@
 {
-  "project_id": 10034,
+  "project_id": "10034",
   "fields": {
     "Tower": "customfield_10042",
     "Support Tier": "customfield_10043",
@@ -52,8 +52,32 @@
     "OPS - Reopened tickets": "10041",
     "OPS - Escalated in last 30 days": "10042",
     "OPS - Escalated with no KB article found": "10043",
-    "OPS - Intake via chat (shadow support pulled in)": "10044"
+    "OPS - Intake via chat (shadow support pulled in)": "10044",
+    "OPS - L2 queue: End User Computing": "10045",
+    "OPS - L2 queue: Enterprise Applications": "10046",
+    "OPS - L2 queue: Network & Connectivity": "10047",
+    "OPS - L2 queue: Database": "10048",
+    "OPS - L2 queue: Compute & Storage": "10049",
+    "OPS - L2 queue: Cloud & Security": "10050",
+    "OPS - P1 at risk (past 75% of target)": "10051",
+    "OPS - P2 at risk (past 75% of target)": "10052",
+    "OPS - P3 at risk (past 75% of target)": "10053",
+    "OPS - P4 at risk (past 75% of target)": "10054"
   },
   "dashboard_id": "10001",
-  "note": "gate_validator_via_api=False: system:field-required rejected by workflows/create; build it in the UI"
+  "note": "gate_validator_via_api=False: system:field-required rejected by workflows/create; build it in the UI",
+  "issue_types": {
+    "Incident": "10016",
+    "Service Request": "10017",
+    "Change": "10018",
+    "Problem": "10019"
+  },
+  "issue_type_scheme_id": "10165",
+  "priorities": {
+    "P1 - Critical": "10000",
+    "P2 - High": "10001",
+    "P3 - Medium": "10002",
+    "P4 - Low": "10003"
+  },
+  "priority_scheme_id": "10166"
 }

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://example.invalid/jira-automation-rule-spec-v1",
+  "_note": "SPECIFICATION, not a verified Jira export. Build in the rule builder, then export from Automation and replace this file. See automation/README.md.",
+  "ruleNumber": 4,
+  "name": "Warn at 75% of resolution target",
+  "state": "ENABLED",
+  "projectScope": [
+    "OPS"
+  ],
+  "trigger": {
+    "type": "scheduled",
+    "interval": "every 15 minutes"
+  },
+  "conditions": [
+    {
+      "type": "jql-condition",
+      "jql": "project = OPS AND statusCategory != Done AND status NOT IN (\"Pending Customer\",\"Pending Vendor\") AND ((priority = \"P1 - Critical\" AND \"Reported At\" <= -3h) OR (priority = \"P2 - High\" AND \"Reported At\" <= -6h) OR (priority = \"P3 - Medium\" AND \"Reported At\" <= -54h) OR (priority = \"P4 - Low\" AND \"Reported At\" <= -90h))"
+    }
+  ],
+  "actions": [
+    {
+      "type": "add-comment",
+      "body": "At 75% of the resolution target for this priority."
+    },
+    {
+      "type": "send-notification",
+      "to": [
+        "assignee",
+        "tower-lead"
+      ]
+    }
+  ],
+  "whyItExists": "Warn while the ticket can still be saved, not after the target has passed. Thresholds are 75% of the P1-P4 targets in config.py; the Pending exclusion matters."
+}

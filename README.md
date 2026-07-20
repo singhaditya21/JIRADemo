@@ -14,6 +14,9 @@ Design and build approach for an L1/L2 IT support tower ticket management system
 | [LIVEDEMO.md](LIVEDEMO.md) | How to build a live, clickable demo: what is scriptable, seed-data strategy, run sheet, fallbacks. |
 | [SCHEMA.md](SCHEMA.md) | **Live reference** — 20 real field IDs, permission scheme, and the seven automation rules as exact recipes. |
 | [CLAIMS.md](CLAIMS.md) | **Every factual assertion with its verification status.** Nothing enters a deliverable without a row here. |
+| [PILOT.md](PILOT.md) | Measured baseline, pilot tower selection, the two-week loop, exit criteria. |
+| [ROLLOUT.md](ROLLOUT.md) | Wave sequencing, the KB compounding loop, change management, go/no-go gates. |
+| `automation/` | The seven rules as specifications, with build order. |
 | `scripts/` | The build. See below. |
 
 ## The live app
@@ -22,8 +25,10 @@ A working L1/L2 tower is built and populated on `singhaditya21.atlassian.net`:
 
 - **Project:** [OPS](https://singhaditya21.atlassian.net/browse/OPS) — company-managed, 20 custom fields, 11 statuses, 13-transition workflow
 - **Dashboard:** [OPS - L1/L2 Tower](https://singhaditya21.atlassian.net/jira/dashboards/10001)
-- **420 seeded tickets** across 6 towers — 179 escalated with complete gate evidence, 50 SLA-breached, 20 reopened, 77 open
-- **10 saved filters** standing in for JSM agent queues
+- **Four ITSM issue types** — Incident (271), Service Request (110), Change (28), Problem (11)
+- **P1–P4 priority scheme**, derived from Impact × Urgency and set on the real Priority field
+- **420 seeded tickets** across 6 towers — 171 escalated with complete gate evidence, 64 SLA-breached, 15 reopened, 62 open
+- **20 saved filters** — per-tower L2 queues, SLA at-risk views, KB-gap and shadow-support queues
 
 ```bash
 source your-env-file          # JIRA_SITE, JIRA_EMAIL, JIRA_TOKEN
@@ -31,6 +36,9 @@ python3 scripts/01_build.py    # project, fields, screens      (idempotent)
 python3 scripts/02_workflow.py # statuses + workflow           (idempotent)
 python3 scripts/03_seed.py     # 420 tickets   --dry-run first (reproducible: fixed seed)
 python3 scripts/04_views.py    # filters + dashboard           (idempotent)
+python3 scripts/05_issuetypes.py # Incident/Request/Change/Problem
+python3 scripts/06_priority.py   # P1-P4 priorities + scheme
+python3 scripts/07_baseline.py --by-tower   # measure the six scoreboard metrics
 python3 scripts/99_reset.py    # wipe issues so you can rehearse again
 ```
 

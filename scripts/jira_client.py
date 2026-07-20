@@ -17,7 +17,7 @@ class Jira:
         token = os.environ["JIRA_TOKEN"]
         self.auth = base64.b64encode(f"{email}:{token}".encode()).decode()
 
-    def _call(self, method, path, body=None, retries=3):
+    def _call(self, method, path, body=None, retries=7):
         url = path if path.startswith("http") else f"{self.site}{path}"
         data = json.dumps(body).encode() if body is not None else None
         req = urllib.request.Request(url, data=data, method=method)
@@ -33,9 +33,16 @@ class Jira:
                     return json.loads(raw) if raw.strip() else {}
             except urllib.error.HTTPError as e:
                 detail = e.read().decode()[:500]
-                # 429/5xx are worth retrying; 4xx are not
+                # 429/5xx are worth retrying; other 4xx are caller error
                 if e.code in (429, 500, 502, 503, 504) and attempt < retries - 1:
-                    time.sleep(2 ** attempt)
+                    # Jira returns Retry-After on rate limits; honour it rather than
+                    # guessing, otherwise a big seed run half-fails under throttling.
+                    wait = e.headers.get("Retry-After") or e.headers.get("X-RateLimit-Reset")
+                    try:
+                        delay = min(float(wait), 60.0)
+                    except (TypeError, ValueError):
+                        delay = min(2 ** attempt, 30.0)
+                    time.sleep(delay + 0.25 * attempt)
                     continue
                 raise RuntimeError(f"{method} {url} -> {e.code}: {detail}") from None
             except urllib.error.URLError as e:

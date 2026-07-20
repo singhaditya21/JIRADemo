@@ -59,6 +59,19 @@ previously asserted in four documents before being checked, and shipped wrong.
 
 ---
 
+## Phase build — verified 2026-07-20
+
+| # | Claim | Status | Evidence |
+|---|---|---|---|
+| 20 | Four ITSM issue types created and bound via scheme | ✅ VERIFIED | Incident/Service Request/Change/Problem, scheme 10165. Binding required deleting all `Task` issues first — a scheme cannot be applied while issues use types outside it. |
+| 21 | Custom P1–P4 priorities and a priority scheme are creatable over REST | ✅ VERIFIED | Priorities 10000–10003, scheme 10166. `iconUrl` is required on create; the scheme needs `mappings.in` for every built-in priority before Jira will drop them. |
+| 22 | Seeded priority now lands on the real `priority` field | ✅ VERIFIED | Earlier seeds only wrote the derived priority into the description, so every priority-based queue was blind. P1 42 / P2 43 / P3 172 / P4 163. |
+| 23 | Problems are excluded from SLA attainment | ✅ VERIFIED | 11 Problems carry no Response/Resolution SLA. Including investigations would penalise the tower for doing root-cause work. |
+| 24 | 20 saved filters live, including per-tower L2 queues and SLA at-risk views | ✅ VERIFIED | At-risk JQL must use full priority names (`"P1 - Critical"`), not the short code. |
+| 25 | Measured 90-day baseline | ✅ VERIFIED | FTR 61.8% · escalation 40.7% · reopen 4.3% · resolution SLA 81.6% · response SLA 82.2% · 60 aged >14d · **46% of escalations found no KB article**. Produced by `07_baseline.py`. |
+| 26 | Pilot tower selected from data, not preference | ✅ VERIFIED | End User Computing: 126 volume, 61.9% FTR. Ranked on volume × headroom — see `PILOT.md` §2. |
+| 27 | Automation rule files are specs, not verified Jira exports | ⚠️ **UNVERIFIED BY DESIGN** | `automation/*.json` map 1:1 to the rule builder but have never been round-tripped through Jira import. Build in UI, export, then replace. Stated plainly in `automation/README.md`. |
+
 ## Before the demo — what is left
 
 Items 8 and 12 are now settled by the live build. What remains:

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://example.invalid/jira-automation-rule-spec-v1",
+  "_note": "SPECIFICATION, not a verified Jira export. Build in the rule builder, then export from Automation and replace this file. See automation/README.md.",
+  "ruleNumber": 2,
+  "name": "Set tier and release to the tower queue on escalation",
+  "state": "ENABLED",
+  "projectScope": [
+    "OPS"
+  ],
+  "trigger": {
+    "type": "issue-transitioned",
+    "toStatus": "Escalated to L2"
+  },
+  "conditions": [],
+  "actions": [
+    {
+      "type": "edit-issue",
+      "fields": {
+        "customfield_10043": "L2"
+      }
+    },
+    {
+      "type": "assign-issue",
+      "assignee": null,
+      "comment": "Cleared so the ticket lands in the tower's L2 queue rather than on one named person."
+    }
+  ],
+  "whyItExists": "An escalation assigned to an individual is a handoff to a person who may be on leave."
+}

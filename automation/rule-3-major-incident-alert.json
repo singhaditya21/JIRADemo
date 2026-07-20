@@ -1,0 +1,40 @@
+{
+  "$schema": "https://example.invalid/jira-automation-rule-spec-v1",
+  "_note": "SPECIFICATION, not a verified Jira export. Build in the rule builder, then export from Automation and replace this file. See automation/README.md.",
+  "ruleNumber": 3,
+  "name": "Alert on P1",
+  "state": "ENABLED",
+  "projectScope": [
+    "OPS"
+  ],
+  "trigger": {
+    "type": "field-value-changed",
+    "fields": [
+      "priority"
+    ]
+  },
+  "conditions": [
+    {
+      "type": "issue-fields-condition",
+      "field": "priority",
+      "operator": "equals",
+      "value": "P1 - Critical"
+    }
+  ],
+  "actions": [
+    {
+      "type": "send-notification",
+      "to": [
+        "tower-lead",
+        "major-incident-manager"
+      ],
+      "subject": "P1 raised: {{issue.key}} - {{issue.summary}}"
+    },
+    {
+      "type": "send-web-request",
+      "description": "Post to the incident channel",
+      "method": "POST"
+    }
+  ],
+  "whyItExists": "A P1 that waits in a queue to be noticed is not being treated as a P1."
+}

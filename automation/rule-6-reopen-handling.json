@@ -1,0 +1,44 @@
+{
+  "$schema": "https://example.invalid/jira-automation-rule-spec-v1",
+  "_note": "SPECIFICATION, not a verified Jira export. Build in the rule builder, then export from Automation and replace this file. See automation/README.md.",
+  "ruleNumber": 6,
+  "name": "Flag and route reopened tickets",
+  "state": "ENABLED",
+  "projectScope": [
+    "OPS"
+  ],
+  "trigger": {
+    "type": "issue-transitioned",
+    "fromStatus": "Resolved",
+    "toStatus": "Triage"
+  },
+  "conditions": [
+    {
+      "type": "issue-fields-condition",
+      "field": "customfield_10060",
+      "operator": "within",
+      "value": "7d"
+    }
+  ],
+  "actions": [
+    {
+      "type": "edit-issue",
+      "fields": {
+        "customfield_10052": "Yes",
+        "customfield_10043": "L1"
+      }
+    },
+    {
+      "type": "send-notification",
+      "to": [
+        "original-resolver",
+        "tower-lead"
+      ]
+    },
+    {
+      "type": "add-comment",
+      "body": "Reopened within 7 days of resolution. Counts against reopen rate."
+    }
+  ],
+  "whyItExists": "Makes first-time resolution honest. Without the flag a premature close reappears as a fresh ticket and inflates FTR - which is why FTR and reopen rate are paired."
+}

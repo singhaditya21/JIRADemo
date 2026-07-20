@@ -103,6 +103,9 @@ SELECT_FIELDS = {
     "Resolution Code": [
         "Fixed", "Workaround applied", "No fault found",
         "Duplicate", "Withdrawn by requester", "Referred to vendor",
+        # type-specific closures: requests are fulfilled, changes implemented,
+        # problems end in a documented known error rather than a fix
+        "Fulfilled", "Implemented", "Rolled back", "Known error documented",
     ],
     "Response SLA": ["Met", "Breached", "In progress"],
     "Resolution SLA": ["Met", "Breached", "In progress", "Paused"],

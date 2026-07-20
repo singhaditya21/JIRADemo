@@ -1,0 +1,31 @@
+{
+  "$schema": "https://example.invalid/jira-automation-rule-spec-v1",
+  "_note": "SPECIFICATION, not a verified Jira export. Build in the rule builder, then export from Automation and replace this file. See automation/README.md.",
+  "ruleNumber": 7,
+  "name": "Close resolved tickets after 5 quiet days",
+  "state": "ENABLED",
+  "projectScope": [
+    "OPS"
+  ],
+  "trigger": {
+    "type": "scheduled",
+    "interval": "daily at 02:00"
+  },
+  "conditions": [
+    {
+      "type": "jql-condition",
+      "jql": "project = OPS AND status = Resolved AND updated <= -5d"
+    }
+  ],
+  "actions": [
+    {
+      "type": "transition-issue",
+      "to": "Closed"
+    },
+    {
+      "type": "add-comment",
+      "body": "Closed automatically after 5 days without response. Reopen if the issue persists."
+    }
+  ],
+  "whyItExists": "Stops the Resolved column quietly becoming a second backlog."
+}

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://example.invalid/jira-automation-rule-spec-v1",
+  "_note": "SPECIFICATION, not a verified Jira export. Build in the rule builder, then export from Automation and replace this file. See automation/README.md.",
+  "ruleNumber": 5,
+  "name": "Pause and resume the resolution clock",
+  "state": "ENABLED",
+  "projectScope": [
+    "OPS"
+  ],
+  "trigger": {
+    "type": "issue-transitioned",
+    "toStatus": [
+      "Pending Customer",
+      "Pending Vendor",
+      "In Progress L1",
+      "In Progress L2",
+      "Triage"
+    ]
+  },
+  "conditions": [],
+  "actions": [
+    {
+      "type": "if-else-block",
+      "branches": [
+        {
+          "if": {
+            "status": [
+              "Pending Customer",
+              "Pending Vendor"
+            ]
+          },
+          "then": {
+            "type": "edit-issue",
+            "fields": {
+              "customfield_10051": "Paused"
+            }
+          }
+        },
+        {
+          "else": {
+            "type": "edit-issue",
+            "fields": {
+              "customfield_10051": "In progress"
+            },
+            "note": "recompute elapsed excluding paused intervals"
+          }
+        }
+      ]
+    }
+  ],
+  "whyItExists": "THE rule that makes the SLA report trustworthy. Without it every ticket waiting on a customer reads as a failure, and leadership stops opening the report."
+}

@@ -27,88 +27,15 @@ import config as C  # noqa: E402
 STATE = Path(__file__).parent / ".build_state.json"
 SEED = 20260720  # fixed so re-runs are reproducible
 
-# --- realistic ticket content, per tower -----------------------------------
-CATALOG = {
-    "End User Computing": [
-        ("Laptop will not join corporate VPN after OS update", "VPN client 7.2 fails handshake post-update", "Low", "Medium"),
-        ("Outlook repeatedly prompting for credentials", "Modern auth token not refreshing", "Low", "Medium"),
-        ("Shared drive mapping missing after profile rebuild", "Login script not applying drive map", "Low", "Low"),
-        ("Laptop battery drains within 90 minutes", "Hardware degradation suspected", "Low", "Low"),
-        ("Cannot print to floor-3 multifunction device", "Print queue stalled on server", "Low", "Medium"),
-        ("Teams audio device not detected on docking station", "Dock firmware mismatch", "Low", "Low"),
-        ("Full disk encryption recovery key required", "User locked out after BIOS change", "Medium", "High"),
-        ("New starter equipment build not delivered", "Provisioning request incomplete", "Medium", "Medium"),
-        ("Screen flicker on external monitor via USB-C", "Display driver or cable fault", "Low", "Low"),
-        ("Software install request - statistical package", "License allocation needed", "Low", "Low"),
-    ],
-    "Enterprise Applications": [
-        ("Payroll export failing at month-end close", "Batch job aborts on record 4,812", "High", "High"),
-        ("ERP purchase requisition stuck in approval", "Workflow engine not advancing", "Medium", "High"),
-        ("CRM reports timing out for regional managers", "Query plan regression after release", "Medium", "Medium"),
-        ("Invoice PDF generation producing blank pages", "Template rendering fault", "Medium", "Medium"),
-        ("SSO redirect loop on finance portal", "SAML assertion clock skew", "High", "High"),
-        ("Bulk upload rejects valid supplier records", "Validation rule too strict after change", "Medium", "Medium"),
-        ("Scheduled nightly reconciliation did not run", "Scheduler missed trigger window", "High", "Medium"),
-        ("User cannot access cost centre 4400", "Role mapping missing post-reorg", "Low", "Medium"),
-        ("Expense approval notifications not sending", "Mail connector queue backed up", "Medium", "Medium"),
-        ("Duplicate journal entries after integration retry", "Idempotency key not honoured", "High", "High"),
-    ],
-    "Network & Connectivity": [
-        ("Branch office link down - 40 users affected", "Primary circuit loss, failover not engaged", "High", "High"),
-        ("Intermittent packet loss on data centre uplink", "Approx 4% loss on core switch port", "High", "High"),
-        ("Wi-Fi authentication failing in west wing", "RADIUS timeout under load", "Medium", "High"),
-        ("VPN concentrator at session capacity", "Licence ceiling reached during peak", "High", "High"),
-        ("DNS resolution slow for internal zone", "Forwarder responding above 800ms", "Medium", "Medium"),
-        ("Firewall rule change request for vendor access", "Standard change, needs approval", "Low", "Low"),
-        ("Guest network captive portal not loading", "Portal certificate expired", "Low", "Medium"),
-        ("Latency spike between regions", "Carrier-side routing change suspected", "Medium", "High"),
-    ],
-    "Database": [
-        ("Replication lag exceeding 15 minutes", "Secondary falling behind under write load", "High", "High"),
-        ("Deadlocks on order processing table", "Lock contention during batch window", "High", "High"),
-        ("Tablespace approaching capacity", "92% used, growth trend steep", "Medium", "High"),
-        ("Slow query on customer search endpoint", "Missing index after schema change", "Medium", "Medium"),
-        ("Backup job failed verification step", "Checksum mismatch on archive", "High", "Medium"),
-        ("Read-only user requires reporting access", "Standard access request", "Low", "Low"),
-        ("Connection pool exhaustion during peak", "Application not releasing connections", "High", "High"),
-    ],
-    "Compute & Storage": [
-        ("Virtual host memory pressure - workloads ballooning", "Cluster above 90% memory", "High", "High"),
-        ("File share quota exceeded for engineering", "Growth outpacing allocation", "Medium", "Medium"),
-        ("Backup window overrunning into business hours", "Job duration doubled since retention change", "Medium", "Medium"),
-        ("Server unresponsive after patch cycle", "Host requires manual intervention", "High", "High"),
-        ("Storage array reporting predictive disk failure", "Drive flagged, RAID still healthy", "Medium", "High"),
-        ("Capacity request for new application tier", "Standard provisioning request", "Low", "Low"),
-        ("Snapshot retention consuming excess capacity", "Policy misconfigured after migration", "Medium", "Low"),
-    ],
-    "Cloud & Security": [
-        ("Suspicious sign-in from unrecognised location", "Impossible-travel alert raised", "High", "High"),
-        ("Cloud spend anomaly - compute up 40% week on week", "Untagged resources in dev subscription", "Medium", "High"),
-        ("Certificate expiring in 5 days on public endpoint", "Renewal not automated", "High", "High"),
-        ("Privileged access review overdue", "Quarterly attestation outstanding", "Medium", "Medium"),
-        ("Phishing report from finance team", "User reported, no click confirmed", "Medium", "High"),
-        ("Storage bucket permissions wider than policy", "Public read detected by scanner", "High", "High"),
-        ("MFA enrolment failing for contractor accounts", "Directory sync attribute missing", "Medium", "Medium"),
-    ],
+import catalog as K  # noqa: E402
+
+
+NOTES_FOR = {
+    "Incident": K.TROUBLESHOOTING,
+    "Service Request": K.REQUEST_NOTES,
+    "Change": K.CHANGE_NOTES,
+    "Problem": K.PROBLEM_NOTES,
 }
-
-TROUBLESHOOTING = [
-    "Confirmed the fault reproduces from a second account and a clean device profile. Checked the runbook entry and applied the documented restart sequence with no change. Collected client logs and attached them.",
-    "Verified service health and recent change records; nothing scheduled in the window. Reproduced on two clients on different subnets, which rules out a local cause. Escalating with logs attached.",
-    "Ran the standard diagnostic script and reviewed the last 200 log lines. Error is consistent and matches no existing KB article. Cleared cache and re-authenticated without effect.",
-    "Checked connectivity, credentials and permissions in that order. Permissions look correct against the role matrix. Restarted the client service twice; fault persists across both.",
-    "Compared configuration against a working peer and found no difference. Confirmed the issue began after the release on the date noted. Rolled back the local change with no improvement.",
-    "Followed the KB article end to end. The documented fix does not apply because the underlying setting is now managed centrally. Needs someone with elevated access.",
-]
-
-COMMENTS = [
-    "Acknowledged and triaging. Will update within the hour.",
-    "Confirmed with the user that the issue is still occurring as described.",
-    "Applied the documented workaround; monitoring before closing.",
-    "Reproduced in the test environment - behaves identically.",
-    "Awaiting confirmation from the requester that service is restored.",
-    "Change record raised to cover the permanent fix.",
-]
 
 
 def weighted(rng, pairs):
@@ -126,8 +53,15 @@ def business_hours_offset(rng, dt, hours):
 
 def build_ticket(rng, idx, now):
     tower = weighted(rng, C.TOWERS)
-    title, detail, base_impact, base_urgency = rng.choice(CATALOG[tower])
+    itype = weighted(rng, K.TYPE_MIX)
+    pool = K.BY_TYPE[itype].get(tower) or K.BY_TYPE["Incident"][tower]
+    title, detail, base_impact, base_urgency = rng.choice(pool)
+    esc_odds, time_mult, res_codes = K.TYPE_BEHAVIOUR[itype]
     channel = weighted(rng, C.INTAKE_CHANNELS)
+    # Changes and problems are planned work - they do not arrive by phone.
+    if itype in ("Change", "Problem"):
+        channel = "Portal"
+
 
     # Catalog entries describe the archetype at its worst. Most real instances are
     # milder, so damp both axes downward - without this, a third of the queue is P1,
@@ -161,11 +95,11 @@ def build_ticket(rng, idx, now):
     first_response = reported + timedelta(hours=resp_actual)
     response_met = "Met" if resp_actual <= resp_h else "Breached"
 
-    escalated = rng.random() < 0.38
+    escalated = rng.random() < esc_odds
     tier = "L2" if escalated else "L1"
 
     # Resolution: escalated work takes materially longer
-    factor = rng.triangular(0.1, 1.3, 0.35) * (1.35 if escalated else 1.0)
+    factor = rng.triangular(0.1, 1.3, 0.35) * (1.35 if escalated else 1.0) * time_mult
     res_actual = res_h * factor
     resolved_at = business_hours_offset(rng, reported, res_actual) if priority in ("P3", "P4") \
         else reported + timedelta(hours=res_actual)
@@ -203,12 +137,19 @@ def build_ticket(rng, idx, now):
     else:
         resolution_sla = "Met" if res_actual <= res_h else "Breached"
 
+    # Problems are investigations, not SLA-bound work. Leaving them in the
+    # attainment figures would penalise the tower for doing root-cause analysis -
+    # exactly the behaviour the design is trying to encourage.
+    if itype == "Problem":
+        response_met = None
+        resolution_sla = None
+
     l1 = rng.choice(C.L1_ANALYSTS)[0]
     l2 = rng.choice(C.L2_ANALYSTS[tower]) if escalated else None
     reopened = "Yes" if (done and rng.random() < 0.042) else "No"
 
     return {
-        "idx": idx, "tower": tower, "title": title, "detail": detail,
+        "idx": idx, "tower": tower, "itype": itype, "title": title, "detail": detail,
         "impact": impact, "urgency": urgency, "priority": priority, "channel": channel,
         "tier": tier, "escalated": escalated, "status": status, "done": done,
         "reported": reported, "first_response": first_response,
@@ -216,14 +157,17 @@ def build_ticket(rng, idx, now):
         "response_sla": response_met, "resolution_sla": resolution_sla,
         "l1": l1, "l2": l2, "reopened": reopened,
         "escalation_reason": rng.choice(C.SELECT_FIELDS["Escalation Reason"]) if escalated else None,
-        "troubleshooting": rng.choice(TROUBLESHOOTING) if escalated else None,
+        "troubleshooting": rng.choice(NOTES_FOR[itype]) if escalated else None,
         "kb": rng.choice(["Yes - article applied", "Yes - none found", "Yes - none found", "No"]) if escalated else None,
         "root_cause": rng.choice(C.SELECT_FIELDS["Root Cause"]) if done and status != "Cancelled" else None,
-        "resolution_code": (rng.choice(C.SELECT_FIELDS["Resolution Code"])
-                            if done and status != "Cancelled" else
-                            ("Withdrawn by requester" if status == "Cancelled" else None)),
-        "comment": rng.choice(COMMENTS) if rng.random() < 0.45 else None,
+        "resolution_code": (rng.choice(res_codes) if done and status != "Cancelled"
+                            else ("Withdrawn by requester" if status == "Cancelled" else None)),
+        "comment": rng.choice(K.COMMENTS) if rng.random() < 0.45 else None,
     }
+
+
+PRIORITY_NAME = {"P1": "P1 - Critical", "P2": "P2 - High",
+                 "P3": "P3 - Medium", "P4": "P4 - Low"}
 
 
 def jira_dt(dt):
@@ -233,8 +177,11 @@ def jira_dt(dt):
 def fields_payload(t, F, settable):
     f = {
         "project": {"key": C.PROJECT_KEY},
-        "issuetype": {"name": "Task"},
+        "issuetype": {"name": t["itype"]},
         "summary": f"[{t['tower'].split(' ')[0]}] {t['title']}",
+        # The derived priority must land on the real field, not just the description,
+        # or every priority-based queue and SLA view is blind to it.
+        "priority": {"name": PRIORITY_NAME[t["priority"]]},
         "description": adf(
             f"{t['detail']}\n\n"
             f"Reported via {t['channel']} at {t['reported'].strftime('%Y-%m-%d %H:%M')}.\n\n"
@@ -243,6 +190,11 @@ def fields_payload(t, F, settable):
         ),
     }
     def put(name, value):
+        # A select payload of {"value": None} is not None but is still invalid.
+        # Check for the *key* - an ADF document is also a dict and has no "value"
+        # key, and testing .get("value") silently dropped every textarea field.
+        if isinstance(value, dict) and "value" in value and value["value"] is None:
+            return
         if value is not None and name in F and F[name] in settable:
             f[F[name]] = value
 
@@ -329,7 +281,7 @@ def main():
 
     # Only send fields the create screen actually accepts, or every issue 400s.
     meta = j.get(f"/rest/api/3/issue/createmeta?projectKeys={C.PROJECT_KEY}"
-                 f"&issuetypeNames=Task&expand=projects.issuetypes.fields")
+                 f"&expand=projects.issuetypes.fields")
     settable = set()
     for p in meta.get("projects", []):
         for it in p.get("issuetypes", []):
@@ -343,7 +295,7 @@ def main():
     tickets = [build_ticket(rng, i, now) for i in range(args.count)]
 
     log(f"\n== distribution across {len(tickets)} tickets ==")
-    for label, key in (("tower", "tower"), ("priority", "priority"),
+    for label, key in (("type", "itype"), ("tower", "tower"), ("priority", "priority"),
                        ("channel", "channel"), ("status", "status")):
         counts = {}
         for t in tickets:
