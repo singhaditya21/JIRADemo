@@ -21,7 +21,7 @@ previously asserted in four documents before being checked, and shipped wrong.
 | 1 | Site is `singhaditya21.atlassian.net`; account has site-admin rights | ✅ VERIFIED 2026-07-20 | `/rest/api/3/mypermissions` → `ADMINISTER`, `CREATE_PROJECT`, `ADMINISTER_PROJECTS` all true |
 | 2 | Only `jira-software` is licensed | ✅ VERIFIED 2026-07-20 | `/rest/api/3/applicationrole` returns one role |
 | 3 | JSM is not provisioned | ⛔ **SUPERSEDED 2026-07-20 (later same day)** | Was true when probed. JSM was provisioned during the day: `/rest/servicedeskapi/info` → 200 `isLicensedForUse: true`, and `service_desk` now appears in `/rest/api/3/project/type`. See #32. |
-| 4 | Two pre-existing projects, `KAN` and `SAM1`, both team-managed | ✅ VERIFIED 2026-07-20 | `/rest/api/3/project/search` → `style: next-gen` |
+| 4 | Two pre-existing projects, `KAN` and `SAM1`, both team-managed | ⛔ **SUPERSEDED 2026-07-20** | Both were Atlassian template content, not user work — `KAN` held onboarding items ("Connect Claude to Jira"), `SAM1` was the "(Example) Billing System Dev" sample. Deleted along with the JSM sample `SUP` so only the two seeded towers remain. See #69. |
 | 5 | Fields, screens, statuses, workflows, schemes, permissions are REST-scriptable | ✅ VERIFIED 2026-07-20 | All endpoints → 200 |
 | 6 | Automation rules have **no** public Cloud REST API | ✅ VERIFIED 2026-07-20 | `/rest/api/3/automation/rules` → 404 |
 | 7 | Team-managed projects expose no workflow validators or conditions | ✅ VERIFIED 2026-07-20 | `/rest/api/3/workflows/capabilities?projectId=10001` → all rule arrays empty |
@@ -204,3 +204,12 @@ verification below was read-only or `--dry-run`.
 | 66 | The major-incident fast path is role-restricted and carries no validators | ✅ VERIFIED 2026-07-20 | Condition `system:restrict-issue-transition`, `roleIds = 10049`. `validators: []`. The transition is offered to the current user because they hold the role. |
 | 67 | Both rules are now reproducible from code | ✅ VERIFIED 2026-07-20 | `jira_config/workflow.py` resolves the role by name (`find_mim_role`) and emits both rules. `--dry-run` issues 0 writes and resolves role 10049, matching live. |
 | 68 | "No REST API" was conflated with "cannot be done" for several turns | ⛔ **PROCESS ERROR, RECORDED** | The UI-only conclusion (#8) blocked work that browser automation could have completed at any point. Correct sequence: a failing API call means *try a different payload, then try the UI and read the result back* — the UI is a source of truth about the correct API shape, not merely a fallback. |
+
+
+## Instance cleanup — 2026-07-20
+
+| # | Claim | Status | Evidence |
+|---|---|---|---|
+| 69 | Exactly two live projects remain, both seeded | ✅ VERIFIED 2026-07-20 | `OPS` (420 issues, 171 tier-L2, 171 gate evidence) and `ITSM` (421, 167). `KAN`, `SAM1` and `SUP` deleted — all three were Atlassian template content with no user-authored work. |
+| 70 | Deleting `SUP` did not disturb `ITSM` | ✅ VERIFIED 2026-07-20 | `ITSM` is now the only service desk (id 8); counts unchanged; the `OPS` gate validator still reads back as `system:validate-field-value`. Deleting `SUP` also disposed of the three undeletable `ZZ DELETE ME` queues from #62, which closes that item. |
+| 71 | Nine projects sit in trash and were **not** purged | ⚠️ **DELIBERATE** | `KAN`, `SAM1`, `SUP`, `JSMTEST`, `ZZSLA`, `ZZTMP1-4`. Deletion moves a project to trash, which is recoverable; emptying trash is irreversible and was left as the account owner's decision. |

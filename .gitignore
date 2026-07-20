@@ -8,6 +8,10 @@
 *.pem
 *.key
 
+# Generated artefacts. `python3 -m app.cli tower` writes here; the file is a
+# render of live Jira at one instant, so it is reproducible and never a source.
+out/
+
 # Build / demo tooling
 node_modules/
 __pycache__/
