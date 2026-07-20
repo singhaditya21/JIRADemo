@@ -88,8 +88,26 @@ def sref(name):
 
 GATE_FIELDS = ["Escalation Reason", "Troubleshooting Performed", "KB Article Checked"]
 
+# The role that may use the major-incident fast path. Resolved by name so the build
+# works on any instance; None means the restriction is skipped with a warning.
+MIM_ROLE_NAME = "Major Incident Manager"
 
-def attempt_workflow(w, status_ids, field_ids):
+
+def find_mim_role(w):
+    """Resolve the Major Incident Manager project role id, or None."""
+    # Writer wraps only the mutating verbs; reads go straight to the client so the
+    # lookup still works under --dry-run.
+    try:
+        roles = w.j.get("/rest/api/3/role")
+    except RuntimeError:
+        return None
+    for r in roles:
+        if r.get("name") == MIM_ROLE_NAME:
+            return r.get("id")
+    return None
+
+
+def attempt_workflow(w, status_ids, field_ids, mim_role_id=None):
     """One careful attempt. Returns True on success."""
     statuses = [{"statusReference": sref(n), "layout": {"x": (i % 4) * 220.0,
                  "y": (i // 4) * 140.0}} for i, (n, _) in enumerate(D.STATUSES)]
@@ -102,14 +120,45 @@ def attempt_workflow(w, status_ids, field_ids):
             t["links"] = [{"fromStatusReference": sref(frm),
                            "toPort": 0, "fromPort": 0}]
         # The escalation gate: three required fields, except on the major-incident path.
+        #
+        # The rule key here matters and cost a detour to find. `system:field-required`
+        # is rejected with "Rule cannot be applied to this type or is unsupported",
+        # which led to the wrong conclusion that validators were UI-only. The actual
+        # key is `system:validate-field-value` with ruleType=fieldRequired - read back
+        # off a validator built by hand in the workflow editor. Confirmed creatable
+        # over REST.
         if name == "Escalate to L2":
             ids = ",".join(field_ids[f] for f in GATE_FIELDS if f in field_ids)
             t["validators"] = [
-                {"ruleKey": "system:field-required",
-                 "parameters": {"fieldsRequired": ids, "ignoreContext": "true",
-                                "errorMessage":
-                                    "Record what you tried before escalating to L2."}}
+                {"ruleKey": "system:validate-field-value",
+                 "parameters": {
+                     "ruleType": "fieldRequired",
+                     "fieldsRequired": ids,
+                     "ignoreContext": "false",
+                     "errorMessage": (
+                         "Record what you tried before escalating to L2. If no KB "
+                         "article covered this, say so - that gap becomes the next "
+                         "article."),
+                 }}
             ]
+
+        # The major-incident fast path carries NO validators - gating a P1 trades
+        # outage minutes for paperwork. It is restricted by ROLE instead, so the
+        # bypass is a deliberate, accountable act rather than a free choice under
+        # pressure. roleIds is resolved at build time from the project roles.
+        if name == "Escalate - major incident" and mim_role_id:
+            t["conditions"] = {
+                "operation": "ALL",
+                "conditionGroups": [],
+                "conditions": [
+                    {"ruleKey": "system:restrict-issue-transition",
+                     "parameters": {"accountIds": "", "roleIds": str(mim_role_id),
+                                    "groupIds": "", "permissionKeys": "",
+                                    "groupCustomFields": "",
+                                    "allowUserCustomFields": "",
+                                    "denyUserCustomFields": ""}}
+                ],
+            }
         transitions.append(t)
 
     body = {
@@ -162,7 +211,9 @@ def main(argv=None):
     state["statuses"] = status_ids
 
     log("== workflow ==")
-    ok = attempt_workflow(w, status_ids, state.get('fields', {}))
+    mim = find_mim_role(w)
+    log(f"  major-incident role: {mim if mim else 'NOT FOUND - fast path left unrestricted'}")
+    ok = attempt_workflow(w, status_ids, state.get('fields', {}), mim)
     # A dry run learns nothing about whether creation would succeed, so it must
     # not overwrite the recorded answer with a guess.
     if ok is not None:

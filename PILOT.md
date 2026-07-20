@@ -71,8 +71,8 @@ The pilot cannot start until these exist. Everything else is already live.
 
 | # | Item | Status |
 |---|---|---|
-| 1 | **Escalation gate validator** on `In Progress L1 → Escalated to L2` | **Not built.** UI only — `CLAIMS.md` #8. Blocks the pilot. |
-| 2 | `Escalate — major incident` transition, restricted to the MIM role | Not built. UI only. |
+| 1 | **Escalation gate validator** on `In Progress L1 → Escalated to L2` | ✅ **LIVE and enforcing** — CLAIMS #65. Escalating with empty fields returns 400. |
+| 2 | `Escalate — major incident` transition, restricted to the MIM role | ✅ **LIVE** — role 10049, no validators. CLAIMS #66. |
 | 3 | Automation rules 5 (SLA pause) and 6 (reopen) | Specs in `automation/`. Build first. |
 | 4 | Automation rules 1–4, 7 | Specs in `automation/`. |
 | 5 | Project, fields, statuses, workflow, priorities, queues | ✅ live |
