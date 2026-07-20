@@ -112,11 +112,12 @@ The demo has to *show the argument*, not tour the configuration.
 2. **Show Impact and Urgency, not Priority.** Change Urgency; watch automation recompute Priority live. Nobody argues their way to a P1.
 3. **Try to escalate without troubleshooting.** *This is the money moment.* The validator refuses. Show the three required fields.
 4. **Fill them in, escalate properly.** Same ticket key. Same SLA clock, still running. Show the history — every hand that touched it, in one trail.
-5. **Move it to Pending Customer.** SLA clock pauses. This is why the SLA report is trustworthy.
-6. **Open the dashboard.** First-time resolution at L1, escalation rate by analyst, reopen rate. Land on the pairing: FTR and reopen move against each other, so neither can be gamed.
-7. **Close with the phase plan** and the one open question you want them to answer.
+5. **Then show the major-incident fast path.** Switch to a P1 and use `Escalate — major incident`: no validators, straight through, restricted to the Major Incident Manager role. Then show the `Resolved → Closed` validator that still demands the same three fields, so the learning is deferred rather than lost. **Expect the question "what about a P1?" — answering it before it is asked is worth more than any other thirty seconds in the demo.**
+6. **Move it to Pending Customer.** SLA clock pauses. This is why the SLA report is trustworthy.
+7. **Open the dashboard.** First-time resolution at L1, escalation rate by analyst, reopen rate. Land on the pairing: FTR and reopen move against each other, so neither can be gamed.
+8. **Close with the phase plan** and the one open question you want them to answer.
 
-Step 3 is the demo. If you have only four minutes, do steps 1, 3, 4 and 6.
+Step 3 is the demo, and step 5 is the answer to the hardest question in the room. If you have only four minutes, do steps 1, 3, 4 and 7.
 
 ---
 

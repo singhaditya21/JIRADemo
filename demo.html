@@ -179,7 +179,11 @@
   .tag--deep { color: var(--muted); }
 
   /* ---------- failure list ---------- */
-  .fails { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+  .fails {
+    display: grid; gap: 1px;
+    grid-template-columns: repeat(auto-fit, minmax(285px, 1fr));
+    background: var(--rule); border: 1px solid var(--rule);
+  }
   .fail { background: var(--paper); padding: 1.4rem 1.5rem; display: grid; gap: 0.5rem; }
   .fail__t { font-weight: 650; font-size: var(--fs-base); }
   .fail__d { color: var(--ink-soft); font-size: var(--fs-sm); line-height: 1.6; }
@@ -339,24 +343,65 @@
   </div>
   <div class="col stack">
     <p>
-      Every L1/L2 tower already owns a ticket system. They fail anyway, and they fail the
-      same three ways — each one traceable to how the system was configured rather than to
-      who was staffing it.
+      Every L1/L2 tower already owns a ticket system. The model rests on one assumption —
+      <strong>that L1 absorbs the majority of demand so L2 is spent only where expertise is
+      genuinely required</strong> — and each failure below is a variation on that assumption
+      quietly breaking.
     </p>
   </div>
   <div class="wide fails" style="margin-top:1.75rem">
     <div class="fail">
       <div class="fail__t">Ticket ping-pong</div>
-      <div class="fail__d">L1 forwards to L2 without troubleshooting. L2 bounces it back. Nobody owns the ticket, and the handoff itself leaves no trace worth auditing.</div>
+      <div class="fail__d">L1 forwards without troubleshooting. L2 bounces it back as under-diagnosed. The ticket accumulates handoffs and no progress, and nobody is accountable between the bounces.</div>
     </div>
     <div class="fail">
       <div class="fail__t">L1 cannot prove its value</div>
-      <div class="fail__d">If you can't measure what L1 resolves <em>without</em> escalating, L1 reads as an expensive switchboard on every budget review — and eventually gets cut.</div>
+      <div class="fail__d">Ask what share of demand L1 absorbs and nobody can answer from data. At budget time L1 reads as a switchboard with a headcount — and gets cut, which raises L2 load and worsens everything else.</div>
     </div>
     <div class="fail">
       <div class="fail__t">SLA reports nobody trusts</div>
-      <div class="fail__d">Clocks that keep running while a ticket waits on the customer make every team look like it is failing. Leadership quietly stops opening the report.</div>
+      <div class="fail__d">Clocks that run while a ticket waits on the customer make every team look like it is failing. Leadership stops opening the report, and with it goes the only feedback loop the tower had.</div>
     </div>
+    <div class="fail">
+      <div class="fail__t">Shadow support</div>
+      <div class="fail__d">When raising a ticket is slower than messaging an engineer directly, users message the engineer. That work is invisible — uncounted, unplanned, unprotected by any SLA. <em>The metrics improve while the service degrades.</em></div>
+    </div>
+    <div class="fail">
+      <div class="fail__t">Knowledge never flows back</div>
+      <div class="fail__d">L2 solves something hard, writes a comment, closes. L1 never learns it and the same ticket escalates next month. L1's resolution ceiling stays capped at whatever its people already knew.</div>
+    </div>
+    <div class="fail">
+      <div class="fail__t">L1 attrition closes the loop</div>
+      <div class="fail__d">If every interesting ticket escalates, L1 is a dead-end job. People leave with their known-error knowledge, and first-time resolution resets with each new hire. This is what makes the other failures permanent.</div>
+    </div>
+  </div>
+
+  <div class="col stack" style="margin-top:2rem">
+    <h3>Each one has a comfortable explanation that points away from the structure</h3>
+  </div>
+
+  <div class="wide tblwrap">
+    <table class="t">
+      <thead>
+        <tr><th>Symptom</th><th>The comfortable explanation</th><th>What it actually is</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Ping-pong</td><td>“L1 needs more training”</td><td>No enforced gate</td></tr>
+        <tr><td>L1 looks low-value</td><td>“L1 <em>is</em> low-value”</td><td>It is unmeasurable</td></tr>
+        <tr><td>SLA misses</td><td>“We are understaffed”</td><td>The clock is wrong</td></tr>
+        <tr><td>Repeat incidents</td><td>“The infrastructure is old”</td><td>No problem loop</td></tr>
+        <tr><td>Everything is a P1</td><td>“Our users are demanding”</td><td>Priority is an opinion</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col stack">
+    <p class="note">
+      Every explanation on the left is locally reasonable, which is exactly why the structural
+      cause survives years of well-intentioned effort — training, hiring and escalation policy
+      all get tried first, because they follow from it. The failure is not that nobody has
+      worked at this. It is that the work has been aimed one level too high.
+    </p>
   </div>
 </section>
 
@@ -424,6 +469,11 @@
       Splitting towers into their own projects is worth it only when they are separate
       vendors under separate contracts who must not see each other's tickets.
     </p>
+    <p class="note note--warn">
+      <strong>Those tower names are placeholders</strong> — a generic infrastructure split,
+      invented for illustration. Replacing them with the real domains is the cheapest change
+      available here and the largest single gain in credibility.
+    </p>
   </div>
 </section>
 
@@ -465,6 +515,51 @@
       <strong>Post-function on success:</strong> set <code>Support Tier = L2</code>, clear the
       assignee so the ticket lands in the tower queue rather than on one named person.
     </div>
+  </div>
+
+  <div class="col stack">
+    <h3 style="margin-top:0.5rem">Do not gate a major incident</h3>
+    <p>
+      A gate that is right for a password reset is actively harmful during an outage. Forcing
+      an analyst to compose a write-up while the business is stopped trades downtime for
+      paperwork — so there are <strong>two</strong> escalation transitions, not one.
+    </p>
+  </div>
+
+  <div class="wide tblwrap">
+    <table class="t">
+      <thead>
+        <tr><th>Transition</th><th>Validators</th><th>Who can use it</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="m">Escalate to L2</td>
+          <td>All three fields required</td>
+          <td>Any L1 agent</td>
+        </tr>
+        <tr>
+          <td class="m">Escalate — major incident</td>
+          <td><span class="yes">none — immediate</span></td>
+          <td>Major Incident Manager role only</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col stack">
+    <p>
+      <strong>Role-restricted, not priority-conditional.</strong> Native Jira conditions branch
+      on role, group and permission rather than on a field value, so gating the fast path by
+      role works without a paid app. It is also the better design: a fast path should be a
+      deliberate, accountable act by a named incident manager, not a free choice available to
+      anyone feeling time pressure.
+    </p>
+    <p class="note">
+      <strong>Nothing is lost, only deferred.</strong> A second validator on
+      <span class="m">Resolved → Closed</span> requires the same three fields on every ticket
+      regardless of route. Majors skip the gate on the way in and pay it on the way out — when
+      the incident is over and the write-up is more accurate anyway.
+    </p>
   </div>
 
   <div class="col stack">
@@ -577,6 +672,16 @@
     </div>
     <h2>Six metrics, chosen so that gaming one exposes you on another</h2>
   </div>
+  <div class="col stack">
+    <p class="note note--warn">
+      <strong>The targets below are placeholders, not benchmarks.</strong> They are
+      conventional-looking numbers with no source, and no measurement of this organisation
+      exists yet. Real targets get set from the pilot's own measured baseline — a target
+      imported from another company is unfalsifiable, and invites argument about the number
+      instead of the mechanism. What matters here is the <em>choice of metrics</em>, not the
+      values.
+    </p>
+  </div>
 
   <div class="wide tblwrap">
     <table class="t">
@@ -606,38 +711,29 @@
 <section>
   <div class="col sec__head">
     <div class="sec__tags">
-      <span class="label">The case</span>
-      <span class="tag tag--deep">Deep dive</span>
+      <span class="label">The value</span>
+      <span class="tag tag--core">Core</span>
     </div>
-    <h2>Moving resolution left is where the money is</h2>
+    <h2>The argument holds without a spreadsheet</h2>
   </div>
-  <div class="col stack">
-    <p class="note note--warn">
-      <strong>Illustrative model, not researched figures.</strong> Assumes 1,000 tickets per
-      month, fully-loaded handling cost of roughly $25 at L1 and $75 at L2, and a 40% baseline
-      first-time-resolution rate. Replace all four with real numbers before anyone commits to
-      them.
-    </p>
-  </div>
-
-  <div class="wide tblwrap">
-    <table class="t">
-      <thead>
-        <tr><th></th><th>Baseline — 40% FTR</th><th>Target — 65% FTR</th></tr>
-      </thead>
-      <tbody>
-        <tr><td>Resolved at L1</td><td class="num">400 × $25 = $10,000</td><td class="num">650 × $25 = $16,250</td></tr>
-        <tr><td>Escalated to L2</td><td class="num">600 × $75 = $45,000</td><td class="num">350 × $75 = $26,250</td></tr>
-        <tr><td><strong>Monthly cost</strong></td><td class="num"><strong>$55,000</strong></td><td class="num"><strong>$42,500</strong></td></tr>
-      </tbody>
-    </table>
-  </div>
-
   <div class="col stack">
     <p>
-      Roughly <strong>$12,500 a month — about $150,000 a year</strong>, entirely from shifting
-      resolution left. The build itself is configuration against an existing Jira licence, not
-      new software spend.
+      Every unit of demand L1 absorbs is a unit L2 does not pay for, and L2 capacity is the
+      scarce, expensive resource. That is the whole economic case, and it does not need a
+      model to stand up.
+    </p>
+    <p class="note note--warn">
+      <strong>There is deliberately no ROI figure here.</strong> Producing one would mean
+      inventing a per-ticket cost, a baseline resolution rate and a monthly volume — none of
+      which has been measured for this organisation. A fabricated model invites argument about
+      the inputs instead of the mechanism, and it is the likeliest thing in a pack like this to
+      fail under questioning.
+    </p>
+    <p>
+      The honest sequence is <strong>instrument, measure a baseline through the pilot, then
+      quantify</strong>. The pilot produces real numbers in two weeks. Anything offered before
+      that is decoration. The build itself is configuration against an existing Jira licence,
+      not new software spend.
     </p>
   </div>
 </section>
@@ -645,10 +741,10 @@
 <section>
   <div class="col sec__head">
     <div class="sec__tags">
-      <span class="label">Licensing — live finding</span>
+      <span class="label">Blocker</span>
       <span class="tag tag--core">Core</span>
     </div>
-    <h2>The SLA engine lives in Service Management, not in Jira Software</h2>
+    <h2>Nothing below can be built until Service Management is provisioned</h2>
   </div>
   <div class="col stack">
     <p>
@@ -676,11 +772,17 @@
 
   <div class="col stack">
     <p>
-      <strong>Recommendation: provision Service Management.</strong> The free tier covers three
-      agents and includes the complete SLA engine — enough to build and prove the entire design
-      before anyone signs a purchase order. Building on Jira Software alone means hand-rolling
-      an SLA clock in automation rules, which is the most brittle possible foundation and the
-      first thing a sceptical audience will poke at.
+      <strong>This is a hard prerequisite, not a caveat.</strong> Without provisioning, the SLA
+      engine, queues and portal do not exist — which means the design cannot be built, and no
+      part of a live walkthrough can be rehearsed. Every downstream step depends on clearing it
+      first.
+    </p>
+    <p>
+      The free tier is understood to cover three agents with the complete SLA engine, which
+      would be enough to build and prove the entire design before anyone signs a purchase
+      order. <strong>That tiering is unconfirmed on this account</strong> and is the first thing
+      to check — if it turns out the SLA engine sits behind a paid tier, the approach needs
+      rethinking rather than adjusting.
     </p>
   </div>
 </section>

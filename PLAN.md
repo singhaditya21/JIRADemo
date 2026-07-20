@@ -126,7 +126,7 @@ Keep it to these four. Every extra issue type multiplies workflow, screen, and r
 
 ### The escalation gate (the most important rule in this system)
 
-The failure mode of every L1/L2 tower is L1 dumping tickets on L2 without troubleshooting. Prevent it in config, not policy:
+The failure mode of every L1/L2 tower is L1 dumping tickets on L2 without troubleshooting (`PROBLEM.md` §4.2). Prevent it in config, not policy:
 
 Put a **workflow validator** on the `In Progress L1 → Escalated to L2` transition requiring:
 - `Escalation Reason` (required, select)
@@ -136,6 +136,23 @@ Put a **workflow validator** on the `In Progress L1 → Escalated to L2` transit
 And a **post-function** that sets `Support Tier = L2` and clears the assignee so the ticket lands in the tower's L2 queue rather than on a named individual.
 
 Measure the resulting **escalation rate per L1 analyst** — that single metric tells you whether L1 is functioning.
+
+### The major-incident fast path — do not gate a P1
+
+A gate that is right for a password reset is actively harmful during an outage. Forcing an analyst to compose a paragraph while the business is stopped trades minutes of downtime for paperwork, and it is the first thing an experienced operator will challenge.
+
+So the gate is **not** universal. There are two escalation transitions:
+
+| Transition | Validators | Who can use it |
+|---|---|---|
+| `Escalate to L2` | All three fields required | Any L1 agent |
+| `Escalate — major incident` | **None.** Immediate. | Major Incident Manager role only |
+
+**Why role-restricted rather than priority-conditional.** Native Jira conditions are understood to branch on permission, role, group and status — not on a field *value* like `Priority = P1` (claim #9, unverified). Restricting the fast path by **role** therefore works with native workflow rules and needs no app. It is also the better design: a fast path should be a deliberate, accountable act by a named incident manager, not a free choice available to anyone feeling time pressure.
+
+**Nothing is lost, only deferred.** A second validator on `Resolved → Closed` requires the same three fields for *every* ticket regardless of path. Majors skip the gate on the way in and pay it on the way out, when the incident is over and the write-up is more accurate anyway.
+
+If the org runs ScriptRunner or JMWE, a genuinely priority-conditional validator is cleaner still — but the design deliberately does not depend on an app being available.
 
 ---
 

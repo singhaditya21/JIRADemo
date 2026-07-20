@@ -36,6 +36,8 @@ Put a **workflow validator** on the `In Progress L1 → Escalated to L2` transit
 
 The gate does two jobs. It blocks the lazy escalation, and it generates the data for **escalation rate per analyst** — the single metric that tells you whether L1 is working, and who needs coaching.
 
+**But the gate must not apply to a major incident.** Forcing a paragraph of write-up while the business is stopped trades outage minutes for paperwork. So there is a second transition — `Escalate — major incident` — with no validators, restricted to the **Major Incident Manager role**. Role-restricted rather than priority-conditional, because native Jira conditions branch on role and permission rather than field value, so this works without a paid app; and because a fast path should be a deliberate, accountable act rather than a free choice under pressure. Nothing is lost: a validator on `Resolved → Closed` requires the same three fields on every ticket, so majors pay the gate on the way out, when the write-up is more accurate anyway.
+
 Two other things get automated for the same reason: **priority** is derived from an Impact × Urgency matrix rather than agent-picked, and **SLA clocks pause** when a ticket is waiting on a customer or vendor. The first stops priority inflation. The second is what makes the SLA report defensible enough that leadership keeps reading it.
 
 ---
@@ -57,17 +59,13 @@ Six metrics, and only six. They are chosen so that gaming one degrades another.
 
 ---
 
-### Illustrative business case
+### Where the value is — stated without a fabricated number
 
-*Assumptions — replace with real figures before anyone commits to them:* 1,000 tickets/month; fully-loaded handling cost of roughly $25 at L1 and $75 at L2; baseline first-time resolution of 40%.
+Every unit of demand L1 absorbs is a unit L2 does not pay for, and L2 capacity is the scarce, expensive resource. That is the economic argument, and it holds without needing a spreadsheet.
 
-| | Baseline (40% FTR) | Target (65% FTR) |
-|---|---|---|
-| Resolved at L1 | 400 × $25 = $10,000 | 650 × $25 = $16,250 |
-| Escalated to L2 | 600 × $75 = $45,000 | 350 × $75 = $26,250 |
-| **Monthly** | **$55,000** | **$42,500** |
+**There is deliberately no ROI model here.** Building one would mean inventing a per-ticket cost, a baseline resolution rate and a monthly volume — none of which has been measured for this organisation. A fabricated model invites argument about the inputs instead of the mechanism, and it is the single most likely thing to fail under questioning.
 
-Roughly **$12,500/month — about $150k/year** — from moving resolution left. The build itself is configuration on an existing Jira licence, not new software spend.
+The honest sequence is instrument, measure a baseline through the pilot, then quantify. The pilot produces the real numbers in two weeks; anything offered before that is decoration. The build itself is configuration against an existing Jira licence, not new software spend.
 
 ---
 
