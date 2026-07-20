@@ -1,0 +1,21 @@
+# Claude Code local state — can capture command history including credentials.
+# Never commit this file.
+.claude/settings.local.json
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Build / demo tooling
+node_modules/
+__pycache__/
+.venv/
+venv/
+build/
+dist/
+
+# OS noise
+.DS_Store
+Thumbs.db

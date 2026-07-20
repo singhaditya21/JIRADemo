@@ -1,0 +1,781 @@
+<title>L1/L2 Support Tower on Jira — Build Approach</title>
+
+<style>
+  :root {
+    --ink:        #0E1A1F;
+    --ink-soft:   #3B5057;
+    --muted:      #64787E;
+    --rule:       #C9D3D2;
+    --paper:      #EDF0EF;
+    --raised:     #F8FAF9;
+    --accent:     #0A6A70;
+    --accent-dim: #0A6A7018;
+    --sev-p1:     #A9322A;
+    --sev-warn:   #96610C;
+    --sev-ok:     #276B50;
+
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --serif: Georgia, "Iowan Old Style", "Times New Roman", Times, serif;
+
+    --fs-xs: 0.71rem;
+    --fs-sm: 0.83rem;
+    --fs-base: 1.02rem;
+    --fs-md: 1.18rem;
+    --fs-lg: 1.5rem;
+    --fs-xl: 2.15rem;
+    --fs-2xl: 3.1rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink:        #E2EAE9;
+      --ink-soft:   #A8BCBF;
+      --muted:      #7D9296;
+      --rule:       #26363B;
+      --paper:      #0B1417;
+      --raised:     #131F23;
+      --accent:     #46BCC1;
+      --accent-dim: #46BCC120;
+      --sev-p1:     #E0705F;
+      --sev-warn:   #D9A03C;
+      --sev-ok:     #5DB98C;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink:        #E2EAE9;
+    --ink-soft:   #A8BCBF;
+    --muted:      #7D9296;
+    --rule:       #26363B;
+    --paper:      #0B1417;
+    --raised:     #131F23;
+    --accent:     #46BCC1;
+    --accent-dim: #46BCC120;
+    --sev-p1:     #E0705F;
+    --sev-warn:   #D9A03C;
+    --sev-ok:     #5DB98C;
+  }
+  :root[data-theme="light"] {
+    --ink:        #0E1A1F;
+    --ink-soft:   #3B5057;
+    --muted:      #64787E;
+    --rule:       #C9D3D2;
+    --paper:      #EDF0EF;
+    --raised:     #F8FAF9;
+    --accent:     #0A6A70;
+    --accent-dim: #0A6A7018;
+    --sev-p1:     #A9322A;
+    --sev-warn:   #96610C;
+    --sev-ok:     #276B50;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: var(--fs-base);
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+    margin: 0;
+    padding: 0 1.25rem 6rem;
+    overflow-x: hidden;
+  }
+
+  .col  { max-width: 66ch;  margin-inline: auto; }
+  .wide { max-width: 1080px; margin-inline: auto; }
+
+  h1, h2, h3 { text-wrap: balance; margin: 0; }
+
+  h1 {
+    font-family: var(--serif);
+    font-size: var(--fs-2xl);
+    font-weight: 400;
+    line-height: 1.08;
+    letter-spacing: -0.018em;
+  }
+  h2 {
+    font-family: var(--serif);
+    font-size: var(--fs-xl);
+    font-weight: 400;
+    line-height: 1.16;
+    letter-spacing: -0.012em;
+    margin-bottom: 0.2rem;
+  }
+  h3 {
+    font-size: var(--fs-md);
+    font-weight: 650;
+    line-height: 1.3;
+    letter-spacing: -0.005em;
+  }
+
+  p { margin: 0; }
+  strong { font-weight: 650; color: var(--ink); }
+  em { font-style: italic; color: var(--ink-soft); }
+
+  .label {
+    font-family: var(--mono);
+    font-size: var(--fs-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.13em;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .label--mute { color: var(--muted); }
+
+  code, .m { font-family: var(--mono); font-size: 0.88em; }
+  code {
+    background: var(--accent-dim);
+    padding: 0.1em 0.36em;
+    border-radius: 3px;
+    color: var(--ink);
+  }
+
+  /* ---------- masthead ---------- */
+  .mast {
+    border-bottom: 1px solid var(--rule);
+    padding: 4.5rem 0 2.25rem;
+    margin-bottom: 3.5rem;
+  }
+  .mast__kicker {
+    display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem;
+    align-items: baseline; margin-bottom: 1.5rem;
+  }
+  .mast__lede {
+    font-size: var(--fs-md);
+    color: var(--ink-soft);
+    margin-top: 1.5rem;
+    max-width: 54ch;
+  }
+  .mast__meta {
+    display: flex; flex-wrap: wrap; gap: 0.4rem 1.5rem;
+    margin-top: 2.25rem;
+    font-family: var(--mono);
+    font-size: var(--fs-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+  }
+
+  /* ---------- sections ---------- */
+  section { margin-bottom: 4.75rem; }
+  .sec__head { display: flex; flex-direction: column; gap: 0.85rem; margin-bottom: 1.75rem; }
+  .sec__tags { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+  .stack { display: flex; flex-direction: column; gap: 1.15rem; }
+
+  /* module tag: marks the 10-min spine vs optional depth */
+  .tag {
+    font-family: var(--mono);
+    font-size: var(--fs-xs);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.18em 0.55em;
+    border: 1px solid currentColor;
+    border-radius: 2px;
+    font-weight: 600;
+  }
+  .tag--core { color: var(--accent); }
+  .tag--deep { color: var(--muted); }
+
+  /* ---------- failure list ---------- */
+  .fails { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+  .fail { background: var(--paper); padding: 1.4rem 1.5rem; display: grid; gap: 0.5rem; }
+  .fail__t { font-weight: 650; font-size: var(--fs-base); }
+  .fail__d { color: var(--ink-soft); font-size: var(--fs-sm); line-height: 1.6; }
+
+  /* ---------- thesis diagram ---------- */
+  .thesis {
+    border: 1px solid var(--rule);
+    background: var(--raised);
+    padding: 2rem 1.75rem 1.75rem;
+    margin: 2rem 0 1.25rem;
+  }
+  .thesis__row {
+    display: flex; align-items: stretch; gap: 0.75rem;
+    flex-wrap: wrap; margin-bottom: 1.5rem;
+  }
+  .node {
+    flex: 1 1 150px;
+    border: 1px solid var(--rule);
+    background: var(--paper);
+    padding: 0.85rem 1rem;
+    display: grid; gap: 0.3rem; align-content: start;
+  }
+  .node--tier { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent-dim); }
+  .node__k { font-family: var(--mono); font-size: var(--fs-xs); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  .node__v { font-weight: 650; font-size: var(--fs-sm); }
+  .arrow {
+    display: grid; place-items: center;
+    font-family: var(--mono); color: var(--accent);
+    font-size: var(--fs-sm); flex: 0 0 auto; padding: 0 0.15rem;
+  }
+  .rail { display: grid; gap: 0.5rem; }
+  .rail__bar { height: 3px; background: var(--accent); border-radius: 2px; }
+  .rail__cap { font-family: var(--mono); font-size: var(--fs-xs); color: var(--accent); letter-spacing: 0.06em; }
+
+  /* ---------- workflow track ---------- */
+  .flowwrap { overflow-x: auto; padding-bottom: 0.75rem; margin: 1.75rem 0 0.75rem; }
+  .flow { min-width: 780px; display: grid; gap: 0.9rem; }
+  .flow__row { display: flex; align-items: center; gap: 0.45rem; }
+  .st {
+    font-family: var(--mono); font-size: var(--fs-xs);
+    padding: 0.42rem 0.6rem; border: 1px solid var(--rule);
+    background: var(--paper); white-space: nowrap; letter-spacing: 0.02em;
+  }
+  .st--l1   { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .st--l2   { border-color: var(--sev-warn); color: var(--sev-warn); font-weight: 600; }
+  .st--pause{ border-style: dashed; color: var(--muted); }
+  .st--end  { border-color: var(--sev-ok); color: var(--sev-ok); font-weight: 600; }
+  .tick { font-family: var(--mono); color: var(--muted); font-size: var(--fs-xs); }
+
+  .clockbar { display: flex; align-items: center; gap: 0; height: 3px; }
+  .clockbar span { flex: 1; }
+  .run  { background: var(--accent); }
+  .hold { background: repeating-linear-gradient(90deg, var(--muted) 0 4px, transparent 4px 9px); }
+
+  /* ---------- gate ---------- */
+  .gate { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); margin: 1.75rem 0 1rem; }
+  .gate__hd { background: var(--raised); padding: 1rem 1.25rem; display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; align-items: baseline; }
+  .gate__req { background: var(--paper); padding: 0.95rem 1.25rem; display: flex; gap: 0.85rem; align-items: baseline; }
+  .gate__box { font-family: var(--mono); color: var(--sev-p1); font-size: var(--fs-sm); flex: 0 0 auto; }
+  .gate__txt { font-size: var(--fs-sm); }
+  .gate__ft { background: var(--raised); padding: 0.95rem 1.25rem; font-size: var(--fs-sm); color: var(--ink-soft); }
+
+  /* ---------- matrix ---------- */
+  .mx { border-collapse: collapse; width: 100%; font-family: var(--mono); font-size: var(--fs-sm); }
+  .mx th, .mx td { border: 1px solid var(--rule); padding: 0.7rem 0.5rem; text-align: center; }
+  .mx th { font-weight: 600; color: var(--muted); font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.09em; background: var(--raised); }
+  .p1 { color: var(--sev-p1); font-weight: 700; }
+  .p2 { color: var(--sev-warn); font-weight: 700; }
+  .p3 { color: var(--ink-soft); }
+  .p4 { color: var(--muted); }
+
+  /* ---------- tables ---------- */
+  .tblwrap { overflow-x: auto; margin: 1.5rem 0 0.75rem; }
+  table.t { border-collapse: collapse; width: 100%; min-width: 560px; font-size: var(--fs-sm); }
+  table.t th, table.t td { text-align: left; padding: 0.72rem 0.9rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  table.t thead th {
+    font-family: var(--mono); font-size: var(--fs-xs); text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--muted); font-weight: 600;
+    border-bottom: 1px solid var(--ink-soft);
+  }
+  table.t tbody tr:last-child td { border-bottom: none; }
+  .num { font-variant-numeric: tabular-nums; font-family: var(--mono); white-space: nowrap; }
+  .yes { color: var(--sev-ok); font-family: var(--mono); }
+  .no  { color: var(--sev-p1); font-family: var(--mono); }
+
+  /* ---------- callout ---------- */
+  .note {
+    border-left: 2px solid var(--accent);
+    padding: 0.15rem 0 0.15rem 1.15rem;
+    color: var(--ink-soft);
+    font-size: var(--fs-sm);
+  }
+  .note--warn { border-left-color: var(--sev-warn); }
+
+  /* ---------- phases ---------- */
+  .phases { display: grid; gap: 1px; background: var(--rule); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); margin: 1.75rem 0 1rem; }
+  .ph { background: var(--paper); padding: 1rem 0.25rem; display: grid; grid-template-columns: 2.4rem 1fr auto; gap: 1rem; align-items: baseline; }
+  .ph__n { font-family: var(--mono); font-size: var(--fs-xs); color: var(--accent); font-weight: 700; letter-spacing: 0.05em; }
+  .ph__t { font-weight: 650; font-size: var(--fs-sm); }
+  .ph__d { color: var(--ink-soft); font-size: var(--fs-sm); grid-column: 2; margin-top: 0.15rem; }
+  .ph__w { font-family: var(--mono); font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .ph--pilot { background: var(--raised); }
+
+  /* ---------- footer ---------- */
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 2rem; margin-top: 5rem;
+    font-size: var(--fs-sm); color: var(--muted);
+    display: grid; gap: 0.6rem;
+  }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 3px;
+  }
+
+  @media (max-width: 620px) {
+    :root { --fs-2xl: 2.15rem; --fs-xl: 1.62rem; }
+    body { padding: 0 1rem 4rem; }
+    .mast { padding-top: 3rem; }
+    .ph { grid-template-columns: 2rem 1fr; }
+    .ph__w { grid-column: 2; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<header class="mast">
+  <div class="col">
+    <div class="mast__kicker">
+      <span class="label">Build approach</span>
+      <span class="label label--mute">Jira Service Management</span>
+    </div>
+    <h1>An L1/L2 support tower, built so that L1 can prove its worth.</h1>
+    <p class="mast__lede">
+      Most support towers already have a ticket system and still ping-pong work between
+      tiers. That is a configuration problem, not a people problem — which means it is
+      fixable in weeks. Here is the design, the build, and the scoreboard.
+    </p>
+    <div class="mast__meta">
+      <span>Aditya Singh</span>
+      <span>20 July 2026</span>
+      <span>Core read ≈ 10 min</span>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="col sec__head">
+    <div class="sec__tags">
+      <span class="label">The problem</span>
+      <span class="tag tag--core">Core</span>
+    </div>
+    <h2>Support towers fail in three predictable ways</h2>
+  </div>
+  <div class="col stack">
+    <p>
+      Every L1/L2 tower already owns a ticket system. They fail anyway, and they fail the
+      same three ways — each one traceable to how the system was configured rather than to
+      who was staffing it.
+    </p>
+  </div>
+  <div class="wide fails" style="margin-top:1.75rem">
+    <div class="fail">
+      <div class="fail__t">Ticket ping-pong</div>
+      <div class="fail__d">L1 forwards to L2 without troubleshooting. L2 bounces it back. Nobody owns the ticket, and the handoff itself leaves no trace worth auditing.</div>
+    </div>
+    <div class="fail">
+      <div class="fail__t">L1 cannot prove its value</div>
+      <div class="fail__d">If you can't measure what L1 resolves <em>without</em> escalating, L1 reads as an expensive switchboard on every budget review — and eventually gets cut.</div>
+    </div>
+    <div class="fail">
+      <div class="fail__t">SLA reports nobody trusts</div>
+      <div class="fail__d">Clocks that keep running while a ticket waits on the customer make every team look like it is failing. Leadership quietly stops opening the report.</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="col sec__head">
+    <div class="sec__tags">
+      <span class="label">The design decision</span>
+      <span class="tag tag--core">Core</span>
+    </div>
+    <h2>Tier is a workflow state. Tower is a field. It is one project.</h2>
+  </div>
+  <div class="col stack">
+    <p>
+      The instinct is to give L1 and L2 separate projects, or separate queues that hand off
+      between them. <strong>That instinct is the root cause.</strong> A handoff mints a new
+      ticket ID, restarts the SLA clock, and splits the audit trail — which is exactly why
+      ping-pong stays invisible, why L1's contribution can't be counted, and why MTTR can't
+      be computed end to end.
+    </p>
+    <p>
+      Instead, escalation is a <strong>workflow transition</strong> that flips a
+      <code>Support Tier</code> field from L1 to L2 and reassigns to the tower's group.
+      Same ticket key. Same clock, running continuously across the boundary. One history
+      showing every hand that touched it.
+    </p>
+  </div>
+
+  <div class="wide thesis">
+    <div class="thesis__row">
+      <div class="node">
+        <span class="node__k">Intake</span>
+        <span class="node__v">Portal · Email · Monitoring</span>
+      </div>
+      <div class="arrow">→</div>
+      <div class="node node--tier">
+        <span class="node__k">Tier — L1</span>
+        <span class="node__v">Triage &amp; resolve</span>
+      </div>
+      <div class="arrow">→</div>
+      <div class="node node--tier">
+        <span class="node__k">Tier — L2</span>
+        <span class="node__v">Tower specialist</span>
+      </div>
+      <div class="arrow">→</div>
+      <div class="node">
+        <span class="node__k">Tier — L3</span>
+        <span class="node__v">Vendor</span>
+      </div>
+      <div class="arrow">→</div>
+      <div class="node">
+        <span class="node__k">Exit</span>
+        <span class="node__v">Resolved</span>
+      </div>
+    </div>
+    <div class="rail">
+      <div class="rail__bar"></div>
+      <div class="rail__cap">OPS-1041 · one ticket key · one SLA clock · one audit trail — unbroken across every tier change</div>
+    </div>
+  </div>
+
+  <div class="col stack">
+    <p class="note">
+      <strong>Tower</strong> — Network, Database, Applications, EUC, Cloud, Security — is a
+      single-select field, not a project. It drives queue routing and every dashboard cut.
+      Splitting towers into their own projects is worth it only when they are separate
+      vendors under separate contracts who must not see each other's tickets.
+    </p>
+  </div>
+</section>
+
+<section>
+  <div class="col sec__head">
+    <div class="sec__tags">
+      <span class="label">The mechanism</span>
+      <span class="tag tag--core">Core</span>
+    </div>
+    <h2>Enforce the discipline in configuration, not in policy</h2>
+  </div>
+  <div class="col stack">
+    <p>
+      “L1 must troubleshoot before escalating” is a policy, and policies erode under queue
+      pressure. So the rule gets moved into the workflow itself: a
+      <strong>validator</strong> on the <code>In Progress L1 → Escalated to L2</code>
+      transition that refuses to move the ticket until the fields below are filled.
+    </p>
+  </div>
+
+  <div class="wide gate">
+    <div class="gate__hd">
+      <span class="m" style="font-weight:650">In Progress L1 &nbsp;→&nbsp; Escalated to L2</span>
+      <span class="label label--mute">Workflow validator</span>
+    </div>
+    <div class="gate__req">
+      <span class="gate__box">[ ]</span>
+      <span class="gate__txt"><strong>Escalation Reason</strong> — single-select, required. Becomes the category axis of the escalation report.</span>
+    </div>
+    <div class="gate__req">
+      <span class="gate__box">[ ]</span>
+      <span class="gate__txt"><strong>Troubleshooting Performed</strong> — paragraph, required, minimum length enforced. Stops one-word escalations.</span>
+    </div>
+    <div class="gate__req">
+      <span class="gate__box">[ ]</span>
+      <span class="gate__txt"><strong>KB Article Checked</strong> — required. Where the article was missing, that gap becomes the next KB backlog item.</span>
+    </div>
+    <div class="gate__ft">
+      <strong>Post-function on success:</strong> set <code>Support Tier = L2</code>, clear the
+      assignee so the ticket lands in the tower queue rather than on one named person.
+    </div>
+  </div>
+
+  <div class="col stack">
+    <p>
+      The gate does two jobs. It blocks the lazy escalation outright, and it manufactures the
+      data for <strong>escalation rate per analyst</strong> — the single number that tells you
+      whether L1 is working, and precisely who needs coaching.
+    </p>
+    <p>
+      Two more rules exist for the same reason. <strong>Priority is derived</strong> from an
+      Impact × Urgency matrix rather than picked by the agent, which ends priority inflation.
+      And <strong>SLA clocks pause</strong> on <span class="m">Pending Customer</span> and
+      <span class="m">Pending Vendor</span> — the detail that makes the SLA report defensible
+      enough that leadership keeps reading it.
+    </p>
+  </div>
+</section>
+
+<section>
+  <div class="col sec__head">
+    <div class="sec__tags">
+      <span class="label">Status model</span>
+      <span class="tag tag--deep">Deep dive</span>
+    </div>
+    <h2>Eleven statuses, and a clock that only stops when the ball is not in our court</h2>
+  </div>
+
+  <div class="wide flowwrap">
+    <div class="flow">
+      <div class="flow__row">
+        <span class="st">New</span><span class="tick">→</span>
+        <span class="st st--l1">Triage</span><span class="tick">→</span>
+        <span class="st st--l1">In Progress L1</span><span class="tick">→</span>
+        <span class="st st--l2">Escalated to L2</span><span class="tick">→</span>
+        <span class="st st--l2">In Progress L2</span><span class="tick">→</span>
+        <span class="st">L3 / Vendor</span><span class="tick">→</span>
+        <span class="st st--end">Resolved</span><span class="tick">→</span>
+        <span class="st st--end">Closed</span>
+      </div>
+      <div class="clockbar">
+        <span class="run"></span><span class="run"></span><span class="hold"></span><span class="run"></span><span class="run"></span>
+      </div>
+      <div class="flow__row" style="gap:1.25rem">
+        <span class="tick">SLA clock running</span>
+        <span class="tick">╌╌ paused on <span class="st st--pause" style="padding:0.1rem 0.4rem">Pending Customer</span> <span class="st st--pause" style="padding:0.1rem 0.4rem">Pending Vendor</span></span>
+      </div>
+      <div class="flow__row" style="gap:1.25rem; margin-top:0.35rem">
+        <span class="tick">Off-ramp: <span class="st" style="padding:0.1rem 0.4rem">Cancelled</span></span>
+        <span class="tick">Reopen within 7 days returns to <span class="st st--l1" style="padding:0.1rem 0.4rem">Triage</span> and flags the ticket</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="col stack">
+    <p class="note">
+      The reopen path matters more than it looks. Without it, a ticket closed prematurely
+      simply reappears as a fresh ticket — which flatters first-time-resolution and hides the
+      real failure. Routing reopens back to Triage with a flag is what makes the reopen rate
+      trustworthy.
+    </p>
+  </div>
+</section>
+
+<section>
+  <div class="col sec__head">
+    <div class="sec__tags">
+      <span class="label">Priority</span>
+      <span class="tag tag--deep">Deep dive</span>
+    </div>
+    <h2>Priority is computed, never chosen</h2>
+  </div>
+  <div class="col stack">
+    <p>
+      Agents set <strong>Impact</strong> and <strong>Urgency</strong> — two questions with
+      defensible answers. Automation derives Priority from the matrix. Nobody argues their
+      way to a P1.
+    </p>
+    <table class="mx" style="margin-top:1.5rem">
+      <thead>
+        <tr><th>Impact ↓ / Urgency →</th><th>High</th><th>Medium</th><th>Low</th></tr>
+      </thead>
+      <tbody>
+        <tr><th>High</th>   <td class="p1">P1</td><td class="p2">P2</td><td class="p3">P3</td></tr>
+        <tr><th>Medium</th> <td class="p2">P2</td><td class="p3">P3</td><td class="p3">P3</td></tr>
+        <tr><th>Low</th>    <td class="p3">P3</td><td class="p3">P3</td><td class="p4">P4</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="wide tblwrap">
+    <table class="t">
+      <thead>
+        <tr><th>Priority</th><th>First response</th><th>Resolution</th><th>Calendar</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="p1">P1 — Critical</td><td class="num">15 min</td><td class="num">4 hours</td><td class="num">24 × 7</td></tr>
+        <tr><td class="p2">P2 — High</td><td class="num">30 min</td><td class="num">8 hours</td><td class="num">24 × 7</td></tr>
+        <tr><td class="p3">P3 — Medium</td><td class="num">4 hours</td><td class="num">3 business days</td><td class="num">Business hours</td></tr>
+        <tr><td class="p4">P4 — Low</td><td class="num">8 hours</td><td class="num">5 business days</td><td class="num">Business hours</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="col sec__head">
+    <div class="sec__tags">
+      <span class="label">The scoreboard</span>
+      <span class="tag tag--core">Core</span>
+    </div>
+    <h2>Six metrics, chosen so that gaming one exposes you on another</h2>
+  </div>
+
+  <div class="wide tblwrap">
+    <table class="t">
+      <thead>
+        <tr><th>Metric</th><th>Target</th><th>What it actually tells you</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>First-time resolution at L1</strong></td><td class="num">≥ 65%</td><td>Whether L1 is resolving or merely routing</td></tr>
+        <tr><td><strong>Escalation rate per analyst</strong></td><td class="num">Trend</td><td>Who needs coaching; where the KB has holes</td></tr>
+        <tr><td><strong>Reopen rate</strong></td><td class="num">&lt; 5%</td><td>Whether L1 is closing early to flatter its FTR</td></tr>
+        <tr><td><strong>SLA attainment by priority</strong></td><td class="num">≥ 95%</td><td>Contractual health, by tower</td></tr>
+        <tr><td><strong>MTTR, split L1 vs L2</strong></td><td class="num">Trend</td><td>Where the time actually goes</td></tr>
+        <tr><td><strong>Backlog aged &gt; 14 days</strong></td><td class="num">→ 0</td><td>What is quietly rotting</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col stack">
+    <p class="note">
+      First-time resolution and reopen rate are deliberately paired. Closing tickets early
+      lifts the first and wrecks the second, so neither number can be moved alone. That
+      pairing is the whole reason the scoreboard can be trusted.
+    </p>
+  </div>
+</section>
+
+<section>
+  <div class="col sec__head">
+    <div class="sec__tags">
+      <span class="label">The case</span>
+      <span class="tag tag--deep">Deep dive</span>
+    </div>
+    <h2>Moving resolution left is where the money is</h2>
+  </div>
+  <div class="col stack">
+    <p class="note note--warn">
+      <strong>Illustrative model, not researched figures.</strong> Assumes 1,000 tickets per
+      month, fully-loaded handling cost of roughly $25 at L1 and $75 at L2, and a 40% baseline
+      first-time-resolution rate. Replace all four with real numbers before anyone commits to
+      them.
+    </p>
+  </div>
+
+  <div class="wide tblwrap">
+    <table class="t">
+      <thead>
+        <tr><th></th><th>Baseline — 40% FTR</th><th>Target — 65% FTR</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Resolved at L1</td><td class="num">400 × $25 = $10,000</td><td class="num">650 × $25 = $16,250</td></tr>
+        <tr><td>Escalated to L2</td><td class="num">600 × $75 = $45,000</td><td class="num">350 × $75 = $26,250</td></tr>
+        <tr><td><strong>Monthly cost</strong></td><td class="num"><strong>$55,000</strong></td><td class="num"><strong>$42,500</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col stack">
+    <p>
+      Roughly <strong>$12,500 a month — about $150,000 a year</strong>, entirely from shifting
+      resolution left. The build itself is configuration against an existing Jira licence, not
+      new software spend.
+    </p>
+  </div>
+</section>
+
+<section>
+  <div class="col sec__head">
+    <div class="sec__tags">
+      <span class="label">Licensing — live finding</span>
+      <span class="tag tag--core">Core</span>
+    </div>
+    <h2>The SLA engine lives in Service Management, not in Jira Software</h2>
+  </div>
+  <div class="col stack">
+    <p>
+      Checked against the live instance: only <code>jira-software</code> is licensed today and
+      the <code>/rest/servicedeskapi/</code> endpoints return <span class="m">403</span>. That
+      matters, because five of the capabilities this design leans on are Service Management
+      features and have no equivalent in Jira Software.
+    </p>
+  </div>
+
+  <div class="wide tblwrap">
+    <table class="t">
+      <thead>
+        <tr><th>Capability</th><th>Service Management</th><th>Jira Software</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>SLA engine — targets, pause conditions, breach clocks</td><td class="yes">native</td><td class="no">✗ hand-rolled in automation</td></tr>
+        <tr><td>Agent queues</td><td class="yes">native</td><td class="no">✗ approximated with filters</td></tr>
+        <tr><td>Customer portal &amp; email intake</td><td class="yes">native</td><td class="no">✗ none</td></tr>
+        <tr><td>Approvals for access &amp; change</td><td class="yes">native</td><td class="no">✗ workflow hack</td></tr>
+        <tr><td>Request types — portal-facing forms</td><td class="yes">native</td><td class="no">✗ issue types only</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="col stack">
+    <p>
+      <strong>Recommendation: provision Service Management.</strong> The free tier covers three
+      agents and includes the complete SLA engine — enough to build and prove the entire design
+      before anyone signs a purchase order. Building on Jira Software alone means hand-rolling
+      an SLA clock in automation rules, which is the most brittle possible foundation and the
+      first thing a sceptical audience will poke at.
+    </p>
+  </div>
+</section>
+
+<section>
+  <div class="col sec__head">
+    <div class="sec__tags">
+      <span class="label">Delivery</span>
+      <span class="tag tag--core">Core</span>
+    </div>
+    <h2>Eight phases, roughly eight weeks, with a working system well before the end</h2>
+  </div>
+
+  <div class="wide phases">
+    <div class="ph">
+      <span class="ph__n">01</span><span class="ph__t">Decide</span><span class="ph__w">wk 1</span>
+      <span class="ph__d">Licensing call, confirmed tower list, one project or several.</span>
+    </div>
+    <div class="ph">
+      <span class="ph__n">02</span><span class="ph__t">Foundation</span><span class="ph__w">wk 1</span>
+      <span class="ph__d">Company-managed project, groups, roles, permission scheme.</span>
+    </div>
+    <div class="ph">
+      <span class="ph__n">03</span><span class="ph__t">Schema</span><span class="ph__w">wk 2</span>
+      <span class="ph__d">Custom fields, four issue types, screens, field configurations.</span>
+    </div>
+    <div class="ph">
+      <span class="ph__n">04</span><span class="ph__t">Workflow</span><span class="ph__w">wk 3</span>
+      <span class="ph__d">Statuses, transitions, the escalation gate validator and post-functions.</span>
+    </div>
+    <div class="ph">
+      <span class="ph__n">05</span><span class="ph__t">SLA &amp; queues</span><span class="ph__w">wk 4</span>
+      <span class="ph__d">Targets with pause conditions, one queue per tower, breach views.</span>
+    </div>
+    <div class="ph">
+      <span class="ph__n">06</span><span class="ph__t">Automation</span><span class="ph__w">wk 5</span>
+      <span class="ph__d">Priority derivation, tower routing, P1 alerting, breach warnings, auto-close.</span>
+    </div>
+    <div class="ph ph--pilot">
+      <span class="ph__n">07</span><span class="ph__t">Pilot — one tower</span><span class="ph__w">wk 6–7</span>
+      <span class="ph__d">Where SLA targets and the escalation gate get tuned against real traffic, and the first Problem records become KB articles. Not a formality.</span>
+    </div>
+    <div class="ph">
+      <span class="ph__n">08</span><span class="ph__t">Roll out</span><span class="ph__w">wk 8+</span>
+      <span class="ph__d">Remaining towers, seeded with the KB the pilot produced.</span>
+    </div>
+  </div>
+
+  <div class="col stack" style="margin-top:1.75rem">
+    <h3>Structure is scripted. Rules are exported JSON. SLA config is UI.</h3>
+    <p>
+      Fields, issue types, screens, statuses, workflows and validators are all reachable
+      through the Jira REST API — verified against the live instance — so the structural build
+      is scriptable, version-controlled and reproducible rather than a sequence of undocumented
+      clicks nobody can replay in six months.
+    </p>
+    <p class="note">
+      <strong>Two honest exceptions.</strong> Automation rules have no public Cloud REST API
+      (<span class="m">/rest/api/3/automation/rules</span> returns
+      <span class="m">404</span>) — they are built in the rule builder and version-controlled
+      through Automation's JSON export/import. SLA targets and queues are configured in the
+      Service Management UI. That division holds for every real Jira build, and it is worth
+      saying out loud rather than claiming full automation.
+    </p>
+  </div>
+</section>
+
+<section>
+  <div class="col sec__head">
+    <div class="sec__tags">
+      <span class="label">Risk</span>
+      <span class="tag tag--core">Core</span>
+    </div>
+    <h2>The gate is the thing most likely to be routed around</h2>
+  </div>
+  <div class="col stack">
+    <p>
+      If the escalation gate is the mechanism the whole design rests on, it is also the thing
+      under the most pressure. The realistic failure is not agents refusing to use it — it is
+      agents discovering a <em>different</em> transition that reaches L2 without passing
+      through it.
+    </p>
+    <p>
+      <strong>Mitigation:</strong> the pilot's escalation-rate data exposes the workaround
+      within days, because one analyst's numbers will diverge sharply from the rest. Transition
+      permissions get tightened before rollout, while the blast radius is one tower.
+    </p>
+  </div>
+</section>
+
+<footer class="col">
+  <div><strong>Open questions before build:</strong> the licensing call; the real tower list;
+  team size and shift pattern (which decides 24×7 versus business-hours calendars); and the
+  intake channels to wire up.</div>
+  <div>Full field schema, permission scheme and the seven automation rules are in the
+  accompanying plan document.</div>
+  <div class="label label--mute" style="margin-top:0.75rem">Aditya Singh · 20 July 2026</div>
+</footer>
