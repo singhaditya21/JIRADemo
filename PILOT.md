@@ -9,9 +9,11 @@ where the first problem records become the KB articles every later tower inherit
 ## 1. Measured baseline
 
 Run against the live `OPS` project on 2026-07-20, 90-day window, measured on
-`Reported At`:
+`Reported At`. SLA state is **computed** by `08_sla.py`, not seeded — P1/P2 on the
+24×7 clock, P3/P4 on a business-hours calendar, paused states excluded:
 
 ```
+python3 scripts/08_sla.py          # recompute SLA from the timeline
 python3 scripts/07_baseline.py --days 90 --by-tower
 ```
 
@@ -21,8 +23,8 @@ python3 scripts/07_baseline.py --days 90 --by-tower
 | First-time resolution at L1 | **61.8%** (215/348) | ≥ 65% | gap |
 | Escalation rate | **40.7%** (171/420) | — | |
 | Reopen rate | **4.3%** (15/348) | < 5% | pass |
-| Resolution SLA attainment | **81.6%** (284 met / 64 breached) | ≥ 95% | gap |
-| Response SLA attainment | **82.2%** | ≥ 95% | gap |
+| Resolution SLA attainment | **78.9%** (306 met / 82 breached) | ≥ 95% | gap |
+| Response SLA attainment | **96.6%** | ≥ 95% | pass |
 | Open now | 62 | — | |
 | Aged over 14 days | **60** | → 0 | gap |
 | Escalated with no KB article | **79 (46% of escalations)** | — | the KB backlog |

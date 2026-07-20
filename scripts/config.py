@@ -140,10 +140,24 @@ PRIORITY_MATRIX = {
     ("Low", "High"): "P3", ("Low", "Medium"): "P3", ("Low", "Low"): "P4",
 }
 
-# PLACEHOLDER targets (CLAIMS.md #14). Response / resolution in hours.
+# PLACEHOLDER targets (CLAIMS.md #14). Response / resolution.
+#
+# Units differ by priority and that is deliberate: P1/P2 run on the 24x7 calendar
+# because L1 is staffed across three shifts, so their targets are elapsed hours.
+# P3/P4 run on a business-hours calendar, so their targets are BUSINESS hours -
+# "3 business days" is 24 business hours, not 72 elapsed. Measuring a business-hours
+# target against a 24x7 clock is the single easiest way to produce an SLA report
+# that looks catastrophic and is simply wrong.
 SLA_TARGETS = {
-    "P1": (0.25, 4), "P2": (0.5, 8), "P3": (4, 72), "P4": (8, 120),
+    "P1": (0.25, 4), "P2": (0.5, 8), "P3": (4, 24), "P4": (8, 40),
 }
+
+# Which calendar each priority is measured on.
+SLA_CLOCK = {"P1": "24x7", "P2": "24x7", "P3": "business", "P4": "business"}
+
+# Business-hours calendar: Mon-Fri, 09:00-17:00 (8h/day, 40h/week).
+BUSINESS_DAY = (9, 17)
+BUSINESS_DAYS = (0, 1, 2, 3, 4)  # Monday=0
 
 STATUSES = [
     ("New", "new"), ("Triage", "indeterminate"), ("In Progress L1", "indeterminate"),
