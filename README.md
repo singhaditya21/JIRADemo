@@ -12,8 +12,38 @@ Design and build approach for an L1/L2 IT support tower ticket management system
 | `L1-L2-Tower-Demo.pptx` | 18-slide deck — 10-slide core spine plus appendix A-1 to A-8. |
 | [BRIEF.md](BRIEF.md) | One-page written brief, for reading ahead. |
 | [LIVEDEMO.md](LIVEDEMO.md) | How to build a live, clickable demo: what is scriptable, seed-data strategy, run sheet, fallbacks. |
+| [SCHEMA.md](SCHEMA.md) | **Live reference** — 20 real field IDs, permission scheme, and the seven automation rules as exact recipes. |
 | [CLAIMS.md](CLAIMS.md) | **Every factual assertion with its verification status.** Nothing enters a deliverable without a row here. |
-| `scripts/check_consistency.py` | Guards against retracted claims drifting back in. Run before every commit. |
+| `scripts/` | The build. See below. |
+
+## The live app
+
+A working L1/L2 tower is built and populated on `singhaditya21.atlassian.net`:
+
+- **Project:** [OPS](https://singhaditya21.atlassian.net/browse/OPS) — company-managed, 20 custom fields, 11 statuses, 13-transition workflow
+- **Dashboard:** [OPS - L1/L2 Tower](https://singhaditya21.atlassian.net/jira/dashboards/10001)
+- **420 seeded tickets** across 6 towers — 179 escalated with complete gate evidence, 50 SLA-breached, 20 reopened, 77 open
+- **10 saved filters** standing in for JSM agent queues
+
+```bash
+source your-env-file          # JIRA_SITE, JIRA_EMAIL, JIRA_TOKEN
+python3 scripts/01_build.py    # project, fields, screens      (idempotent)
+python3 scripts/02_workflow.py # statuses + workflow           (idempotent)
+python3 scripts/03_seed.py     # 420 tickets   --dry-run first (reproducible: fixed seed)
+python3 scripts/04_views.py    # filters + dashboard           (idempotent)
+python3 scripts/99_reset.py    # wipe issues so you can rehearse again
+```
+
+Every script is idempotent and the seed uses a fixed RNG seed, so the same data comes back
+every time. `99_reset.py` exists because you will rehearse this four or five times.
+
+**Seeded history spans 2026-04-24 to 2026-07-15 even though every issue was created on
+one day.** Jira's `created` is read-only over REST, so the real timeline lives in a
+`Reported At` datetime field and every filter and gadget reads that instead. Without this,
+all 420 tickets stack on a single day and every trend chart is one vertical spike.
+
+**Change the towers to the real ones** by editing `TOWERS` in `scripts/config.py` and
+re-running build and seed. That is the single highest-value change available.
 
 ## Working rules
 
