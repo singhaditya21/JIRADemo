@@ -1,0 +1,157 @@
+{
+  "project_id": "10042",
+  "project_key": "ITSM",
+  "project_name": "IT Service Management - L1/L2 Tower",
+  "template": "com.atlassian.servicedesk:itil-v2-service-desk-project",
+  "service_desk_id": "8",
+  "issue_type_scheme_id": "10205",
+  "issue_types": {
+    "Task": "10013",
+    "Service Request": "10017",
+    "Sub-task": "10014",
+    "Incident": "10016",
+    "Problem": "10019",
+    "Change": "10018",
+    "Service Request with Approvals": "10026",
+    "[System] Post-incident review": "10025"
+  },
+  "fields": {
+    "Tower": "customfield_10042",
+    "Support Tier": "customfield_10043",
+    "Impact": "customfield_10004",
+    "Urgency": "customfield_10044",
+    "Intake Channel": "customfield_10045",
+    "Escalation Reason": "customfield_10046",
+    "Troubleshooting Performed": "customfield_10055",
+    "KB Article Checked": "customfield_10047",
+    "Root Cause": "customfield_10048",
+    "Resolution Code": "customfield_10049",
+    "Response SLA": "customfield_10050",
+    "Resolution SLA": "customfield_10051",
+    "Reopened": "customfield_10052",
+    "L1 Analyst": "customfield_10053",
+    "L2 Analyst": "customfield_10054",
+    "Affected Service": "customfield_10056",
+    "Reported At": "customfield_10057",
+    "First Response At": "customfield_10058",
+    "Escalated At": "customfield_10059",
+    "Resolved At": "customfield_10060"
+  },
+  "issue_type_screen_scheme_id": "10042",
+  "screens": {
+    "10195": 56,
+    "10196": 53,
+    "10197": 53,
+    "10198": 48,
+    "10199": 49,
+    "10200": 39,
+    "10201": 39,
+    "10202": 42,
+    "10203": 44
+  },
+  "createmeta": {
+    "Task": 20,
+    "Service Request": 20,
+    "Incident": 20,
+    "Problem": 20,
+    "Change": 20,
+    "Service Request with Approvals": 20,
+    "[System] Post-incident review": 20
+  },
+  "priority_scheme_id": "10166",
+  "seeded": 406,
+  "seed_label": "tower-seed",
+  "queues": {
+    "L1 Queue": "74",
+    "L2 Queue - All Towers": "75",
+    "L2 - End User Computing": "76",
+    "L2 - Enterprise Applications": "77",
+    "L2 - Network & Connectivity": "78",
+    "L2 - Database": "79",
+    "L2 - Compute & Storage": "80",
+    "L2 - Cloud & Security": "81",
+    "Major Incidents": "82",
+    "SLA Breached - Resolution": "83",
+    "Aged Backlog - 14 days and older": "84",
+    "KB Gap - Escalated, no article found": "85"
+  },
+  "filters": {
+    "ITSM - L1 queue (open)": "10064",
+    "ITSM - L2 queue (open)": "10065",
+    "ITSM - Major incidents (Impact High + Urgency High)": "10066",
+    "ITSM - SLA breached (resolution)": "10067",
+    "ITSM - SLA paused (waiting on customer, vendor or approval)": "10068",
+    "ITSM - Aged backlog over 14 days": "10069",
+    "ITSM - Reopened tickets": "10070",
+    "ITSM - Escalated in last 30 days": "10071",
+    "ITSM - Escalated with no KB article found": "10072",
+    "ITSM - Intake via chat (shadow support pulled in)": "10073",
+    "ITSM - L2 queue: End User Computing": "10074",
+    "ITSM - L2 queue: Enterprise Applications": "10075",
+    "ITSM - L2 queue: Network & Connectivity": "10076",
+    "ITSM - L2 queue: Database": "10077",
+    "ITSM - L2 queue: Compute & Storage": "10078",
+    "ITSM - L2 queue: Cloud & Security": "10079",
+    "ITSM - P1 at risk (past 75% of target)": "10080",
+    "ITSM - P2 at risk (past 75% of target)": "10081",
+    "ITSM - P3 at risk (past 75% of target)": "10082",
+    "ITSM - P4 at risk (past 75% of target)": "10083",
+    "ITSM - All issues (project wide)": "10084",
+    "ITSM - All open work": "10085"
+  },
+  "dashboard_id": "10035",
+  "gadgets": [
+    "Volume by tower [pie]",
+    "Escalation split: tower x L1/L2 [two-dim]",
+    "Open work by priority [stats]",
+    "Resolution SLA outcome [pie]",
+    "Intake channel mix [pie]",
+    "SLA breached - resolution [filter-results]",
+    "Aged backlog over 14 days [filter-results]",
+    "KB gap queue [filter-results]",
+    "Major incidents [filter-results]",
+    "L2 queue - all towers [filter-results]",
+    "KB gap by tower (heat map) [heat-map]"
+  ],
+  "organization_id": "2",
+  "portal_customer_accounts": [
+    "70121:c0828f36-733c-4391-9b57-f5f2784f085d"
+  ],
+  "sla_clock": {
+    "model": "24x7 elapsed for ALL priorities",
+    "note": "ITSM Response/Resolution SLA verdicts were recomputed from the persisted Reported At -> First Response At / Resolved At pair on a single 24x7 elapsed clock. config.py SLA_CLOCK (business hours for P3/P4) is NOT the model used by ITSM data; do not narrate a business-hours split for ITSM.",
+    "targets_hours": {
+      "P1": [
+        0.25,
+        4
+      ],
+      "P2": [
+        0.5,
+        8
+      ],
+      "P3": [
+        4,
+        24
+      ],
+      "P4": [
+        8,
+        40
+      ]
+    }
+  },
+  "repairs_2026_07_20": {
+    "escalated_at_backfilled": 14,
+    "first_response_chronology_fixed": 2,
+    "escalated_at_chronology_fixed": 7,
+    "sla_verdicts_rewritten": 40,
+    "gadgets_rebound": [
+      "10043",
+      "10044",
+      "10045",
+      "10046",
+      "10047"
+    ],
+    "itsm_1": "transitioned to Canceled + resolution Done (dropped from open queues)",
+    "blocked": "28 Closed Incidents (Resolution SLA) + 12 Closed Problems (null Resolution SLA) + 6 chronology + 2 Response SLA boundary ties remain unwritable while jira.issue.editable=false on the Closed status of the ITSM Incident and Problem workflows."
+  }
+}

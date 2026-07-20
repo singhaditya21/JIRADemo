@@ -1,12 +1,24 @@
 # Demo tomorrow — what to do tonight
 
-**Decision: demo `OPS`. Do not rebuild in JSM tonight.** JSM is provisioned and is the
-right long-term home, but rebuilding a working system hours before you present, to gain
-a portal and approvals that are not in your run sheet, with no time to verify, is a bad
-trade. Migration is your "what's next" slide, not tonight's work.
+> **Updated 2026-07-20, later the same day.** The JSM rebuild happened anyway — the `ITSM`
+> project now exists, fully seeded, with a portal, 19 agent queues and a working dashboard.
+> **The decision below is unchanged: still demo `OPS`.** The reason is now stronger, not
+> weaker — the `Escalated` status does not exist in `ITSM`'s Incident workflow, so an
+> escalated `ITSM` Incident's History contradicts its own fields. `ITSM` is the
+> "what's next" slide and worth 60 live seconds. See **[CONTROL-TOWER.md](CONTROL-TOWER.md)**
+> for both projects side by side and for what not to open in either.
+>
+> **Both earlier warnings are now resolved.** The `OPS` dashboard's 12 gadgets are bound to
+> real filters (CLAIMS #53) and all 358 Closed tickets carry a proper resolution (CLAIMS #54).
+> Step 7 of the run sheet works as written. A third reported defect — stale at-risk filter
+> thresholds — turned out to be a false alarm and no change was made (CLAIMS #55).
+
+**Decision: demo `OPS`.** JSM is provisioned and is the right long-term home, but the
+run sheet's centrepiece — escalate, key stays the same, open History — works on 156 `OPS`
+tickets and only 18 in `ITSM`. Migration is your "what's next" slide.
 
 Environment verified `GOOD` on 2026-07-20: 420 tickets, 171 escalated with complete gate
-evidence, SLA computed, 20 queues, dashboard live.
+evidence, SLA computed, 20 filters live.
 
 ---
 

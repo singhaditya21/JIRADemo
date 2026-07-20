@@ -15,7 +15,8 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DOCS = ["PROBLEM.md", "PLAN.md", "BRIEF.md", "LIVEDEMO.md", "README.md", "demo.html"]
+DOCS = ["PROBLEM.md", "PLAN.md", "BRIEF.md", "LIVEDEMO.md", "README.md", "demo.html",
+        "CONTROL-TOWER.md", "DEMO-TOMORROW.md"]
 DECK = "L1-L2-Tower-Demo.pptx"
 
 # Retracted claims. Any reappearance is a regression — see CLAIMS.md.
