@@ -2,7 +2,8 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { KpiStrip, PairingPanel, Analysts, KBGap, Towers, Intake, Ageing,
   SlaOutcomes, BacklogFlow, ChannelQuality, AgeingByStatus,
   QueueByStatus, EscalationReasons, InsightsFeed, IntegrityStrip, ImpactUrgency,
-  MajorIncident } from "./panels.jsx";
+  MajorIncident, TierFlow, PracticeMix, IncidentManagement, ChangeManagement,
+  ProblemManagement, RequestFulfilment, SlaByType } from "./panels.jsx";
 import { Drawer } from "./drill.jsx";
 
 const PROJECTS = ["OPS", "ITSM"];
@@ -13,15 +14,18 @@ const LENSES = [
   { id: "L2", lab: "L2", blurb: "Second line — escalations coming in, resolution SLA, and the KB debt to clear." },
 ];
 
-// Which panels each lens shows, in order. Tier lenses reframe shared panels and add their own.
-// `records` powers the panels computed from the record layer (Impact×Urgency, Major incident).
-function lensPanels(lens, model, open, records) {
+// Which panels each lens shows, in order — now project-aware: the ITSM project gets ITIL
+// panels (incident/change/problem/request/SLA-by-type), OPS gets its L1/L2-native ones
+// (tier-flow, Impact×Urgency, major incident). `records` powers the record-derived panels.
+function lensPanels(lens, project, model, open, records) {
   const P = { model, open };
   const R = { model, open, records };
+  const itsm = project === "ITSM";
   if (lens === "L1") return [
     <InsightsFeed key="ins" {...P} />,
     <QueueByStatus key="q" {...P} tier="L1" />,
     <SlaOutcomes key="sla" {...P} lens="L1" />,
+    ...(itsm ? [<IncidentManagement key="im" {...R} />, <RequestFulfilment key="rf" {...R} />] : []),
     <PairingPanel key="pair" {...P} />,
     <Analysts key="an" {...P} />,
     <ImpactUrgency key="iu" {...R} />,
@@ -33,6 +37,8 @@ function lensPanels(lens, model, open, records) {
     <InsightsFeed key="ins" {...P} />,
     <QueueByStatus key="q" {...P} tier="L2" />,
     <SlaOutcomes key="sla" {...P} lens="L2" />,
+    ...(itsm ? [<ProblemManagement key="pm" {...R} />, <ChangeManagement key="cm" {...R} />]
+            : [<TierFlow key="tf" {...R} />]),
     <KBGap key="kb" {...P} lens="L2" />,
     <EscalationReasons key="er" {...P} />,
     <MajorIncident key="mi" {...R} />,
@@ -42,14 +48,17 @@ function lensPanels(lens, model, open, records) {
   ];
   return [
     <InsightsFeed key="ins" {...P} />,
+    ...(itsm
+      ? [<PracticeMix key="pmx" {...R} />, <IncidentManagement key="im" {...R} />,
+         <ChangeManagement key="cm" {...R} />, <ProblemManagement key="pm" {...R} />,
+         <RequestFulfilment key="rf" {...R} />, <SlaByType key="sbt" {...R} />]
+      : [<TierFlow key="tf" {...R} />, <ImpactUrgency key="iu" {...R} />, <MajorIncident key="mi" {...R} />]),
     <PairingPanel key="pair" {...P} />,
     <Analysts key="an" {...P} />,
     <SlaOutcomes key="sla" {...P} />,
     <BacklogFlow key="bf" {...P} />,
     <KBGap key="kb" {...P} />,
     <Towers key="tw" {...P} />,
-    <ImpactUrgency key="iu" {...R} />,
-    <MajorIncident key="mi" {...R} />,
     <ChannelQuality key="ch" {...P} />,
     <Intake key="in" {...P} />,
     <Ageing key="ag" {...P} />,
@@ -198,7 +207,7 @@ export default function App() {
             </div>
             <KpiStrip model={model} lens={lens} open={setDrill} />
             <div className="grid">
-              {lensPanels(lens, model, setDrill, records[project] || null)}
+              {lensPanels(lens, project, model, setDrill, records[project] || null)}
             </div>
             <p className="note">
               Every figure is computed by <span className="mono">app/analytics.py</span> — the same code the static

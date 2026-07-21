@@ -487,3 +487,198 @@ export function MajorIncident({ model, records, open }) {
     </div>
   );
 }
+
+// ---- ITSM ITIL panels (computed from the record layer; ITSM project only) --------------
+const inWindow = (records, model) => (records || []).filter((r) => r.reported_ts != null && r.reported_ts >= model.window_start_ts);
+const meanBy = (rows, f) => { const xs = rows.map(f).filter((x) => x != null); return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null; };
+const ttrHours = (r) => (r.resolved_at && r.reported_at) ? (new Date(r.resolved_at) - new Date(r.reported_at)) / 36e5 : null;
+const dur = (h) => (h == null ? "—" : h < 48 ? `${f1(h)}h` : `${f1(h / 24)}d`);
+const isReq = (r) => r.issue_type === "Service Request" || r.issue_type === "Service Request with Approvals";
+// Tier of a status for flow analysis — terminal states are "done" so resolving/closing an
+// escalated ticket is not mistaken for a bounce back to L1.
+const tof = (s) => {
+  const x = (s || "").toLowerCase();
+  if (/resolv|closed|done|complet|cancel|declin/.test(x)) return "done";
+  if (/l2|escalat|implement/.test(x)) return "L2";
+  if (/pending|waiting|awaiting/.test(x)) return "wait";
+  return "L1";
+};
+
+export function PracticeMix({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const types = ["Incident", "Service Request", "Service Request with Approvals", "Change", "Problem"];
+  const bars = types.map((t) => ({ label: t.replace("Service Request with Approvals", "SR + Approvals"), value: rows.filter((r) => r.issue_type === t).length, _t: t })).filter((b) => b.value > 0);
+  return (
+    <div className="panel">
+      <h2>ITIL practice mix</h2>
+      <p className="why">Demand by ITIL work type — each has its own SLA and lifecycle. {records ? "" : "Loading…"} <span className="hint">Click a type.</span></p>
+      {records && <Bars rows={bars} barH={22}
+        onPick={(b) => open({ type: "records", label: `Type · ${b._t}`, pred: (r) => r.issue_type === b._t, reconcile: b.value, jql: `project = ITSM AND issuetype = "${b._t}"` })} />}
+    </div>
+  );
+}
+
+export function IncidentManagement({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const inc = rows.filter((r) => r.issue_type === "Incident");
+  const mtta = meanBy(inc, (r) => r.response_hours);
+  const mttr = meanBy(inc.filter((r) => r.resolved_at), ttrHours);
+  const major = inc.filter((r) => r.priority === "P1 - Critical").length;
+  const openInc = inc.filter((r) => r.is_open).length;
+  const reopened = inc.filter((r) => r.is_reopened).length;
+  return (
+    <div className="panel span-2">
+      <h2>Incident management</h2>
+      <p className="why">The core ITIL desk. MTTA = time to first response; MTTR = reported → resolved. {records ? "" : "Loading…"}</p>
+      {records && (
+        <>
+          <div className="miniboard">
+            <div><span className="k">incidents</span><span className="v tnum">{inc.length}</span></div>
+            <div><span className="k">MTTA</span><span className="v tnum">{dur(mtta)}</span></div>
+            <div><span className="k">MTTR</span><span className="v tnum">{dur(mttr)}</span></div>
+            <div><span className="k">major (P1)</span><span className="v tnum" style={{ color: major ? "var(--crit)" : "var(--ok)" }}>{major}</span></div>
+            <div><span className="k">open</span><span className="v tnum" style={{ color: openInc ? "var(--warn)" : "var(--ok)" }}>{openInc}</span></div>
+            <div><span className="k">reopened</span><span className="v tnum">{reopened}</span></div>
+          </div>
+          <button className="linkish" onClick={() => open({ type: "records", label: "Incidents", pred: (r) => r.issue_type === "Incident", hi: (r) => r.is_open, hiLab: "open", reconcile: inc.length, jql: `project = ITSM AND issuetype = Incident` })}>see the {inc.length} incidents →</button>
+        </>
+      )}
+    </div>
+  );
+}
+
+export function ChangeManagement({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const ch = rows.filter((r) => r.issue_type === "Change");
+  const byStatus = {};
+  for (const r of ch) byStatus[r.status] = (byStatus[r.status] || 0) + 1;
+  const bars = Object.entries(byStatus).sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value, color: /cab|approval/i.test(label) ? "var(--warn)" : "var(--accent)" }));
+  const cab = ch.filter((r) => /cab|approval/i.test(r.status)).length;
+  const declined = ch.filter((r) => r.status === "Declined").length;
+  return (
+    <div className="panel">
+      <h2>Change management</h2>
+      <p className="why">{ch.length} changes · {cab} awaiting CAB approval · {declined} declined. (CAB cycle time needs approval timestamps, not on the record.) {records ? "" : "Loading…"} <span className="hint">Click a status.</span></p>
+      {records && <Bars rows={bars} barH={18}
+        onPick={(b) => open({ type: "records", label: `Change · ${b.label}`, pred: (r) => r.issue_type === "Change" && r.status === b.label, reconcile: b.value, jql: `project = ITSM AND issuetype = Change AND status = "${b.label}"` })} />}
+    </div>
+  );
+}
+
+export function ProblemManagement({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const prob = rows.filter((r) => r.issue_type === "Problem");
+  const rc = {};
+  for (const r of rows.filter((r) => r.root_cause)) rc[r.root_cause] = (rc[r.root_cause] || 0) + 1;
+  const bars = Object.entries(rc).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([label, value]) => ({ label, value }));
+  return (
+    <div className="panel span-2">
+      <h2>Problem management &amp; root cause</h2>
+      <p className="why">{prob.length} problem records. Root-cause distribution across resolved work — the recurring causes a problem practice attacks first (problem→incident links aren't on the record). {records ? "" : "Loading…"} <span className="hint">Click a cause.</span></p>
+      {records && <Bars rows={bars} barH={16}
+        onPick={(b) => open({ type: "records", label: `Root cause · ${b.label}`, pred: (r) => r.root_cause === b.label, reconcile: b.value, jql: `project = ITSM AND cf[10048] = "${b.label}"` })} />}
+    </div>
+  );
+}
+
+export function RequestFulfilment({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const req = rows.filter(isReq);
+  const fulfilled = req.filter((r) => !r.is_open).length;
+  const pending = rows.filter((r) => /waiting for approval|awaiting cab/i.test(r.status)).length;
+  const declined = rows.filter((r) => r.status === "Declined").length;
+  return (
+    <div className="panel">
+      <h2>Service request fulfilment</h2>
+      <p className="why">Requests and their approval gates. {records ? "" : "Loading…"}</p>
+      {records && (
+        <>
+          <div className="miniboard">
+            <div><span className="k">requests</span><span className="v tnum">{req.length}</span></div>
+            <div><span className="k">fulfilled</span><span className="v tnum">{fulfilled}</span></div>
+            <div><span className="k">pending approval</span><span className="v tnum" style={{ color: pending ? "var(--warn)" : "var(--ok)" }}>{pending}</span></div>
+            <div><span className="k">declined</span><span className="v tnum">{declined}</span></div>
+          </div>
+          <button className="linkish" onClick={() => open({ type: "records", label: "Awaiting approval", pred: (r) => /waiting for approval|awaiting cab/i.test(r.status), windowed: false, reconcile: pending, jql: `project = ITSM AND status in ("Waiting for approval", "Awaiting CAB approval")` })}>see the {pending} awaiting approval →</button>
+        </>
+      )}
+    </div>
+  );
+}
+
+export function SlaByType({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const types = ["Incident", "Service Request", "Change", "Problem"];
+  const data = types.map((t) => {
+    const rs = rows.filter((r) => r.issue_type === t || (t === "Service Request" && r.issue_type === "Service Request with Approvals"));
+    const met = rs.filter((r) => r.resolution_sla === "Met").length, br = rs.filter((r) => r.resolution_sla === "Breached").length;
+    return { t, met, br, att: met + br ? (met / (met + br)) * 100 : null };
+  }).filter((d) => d.met + d.br > 0);
+  return (
+    <div className="panel">
+      <h2>SLA attainment by work type</h2>
+      <p className="why">Resolution SLA met vs breached, per ITIL work type — where the desk is losing time. {records ? "" : "Loading…"} <span className="hint">Click a row.</span></p>
+      {records && (
+        <div className="scrollx"><table>
+          <thead><tr><th>Type</th><th className="num">Met</th><th className="num">Breached</th><th className="num">Attainment</th></tr></thead>
+          <tbody>{data.map((d) => (
+            <tr key={d.t} className="clickable" onClick={() => open({ type: "records", label: `${d.t} · SLA`, pred: (r) => (r.issue_type === d.t || (d.t === "Service Request" && r.issue_type === "Service Request with Approvals")) && ["Met", "Breached"].includes(r.resolution_sla), hi: (r) => r.resolution_sla === "Breached", hiLab: "breached", reconcile: d.met + d.br, jql: `project = ITSM AND issuetype = "${d.t}" AND cf[10051] in (Met, Breached)` })}>
+              <td>{d.t}</td><td className="num tnum">{d.met}</td><td className="num tnum">{d.br}</td><td className="num tnum">{pct(d.att)}</td>
+            </tr>
+          ))}</tbody>
+        </table></div>
+      )}
+    </div>
+  );
+}
+
+// ---- OPS tier-flow / ping-pong (theme D) from the changelog timelines ------------------
+export function TierFlow({ model, records, open }) {
+  const rows = inWindow(records, model);
+  let pingpong = 0, reesc = 0; const hopDist = { "0": 0, "1": 0, "2": 0, "3+": 0 };
+  for (const r of rows) {
+    const st = (r.timeline || []).filter((c) => c.field === "status");
+    let hops = 0, escCount = 0, wentL2 = false, bounced = false;
+    for (const c of st) {
+      const from = tof(c.from), to = tof(c.to);
+      // a tier hop = a move BETWEEN active L1 and L2 (resolving/closing is not a hop)
+      if ((from === "L1" || from === "L2") && (to === "L1" || to === "L2") && from !== to) hops++;
+      if (to === "L2" && from !== "L2") { escCount++; wentL2 = true; }   // a distinct escalation event
+      if (wentL2 && to === "L1") bounced = true;   // back to an ACTIVE L1 status
+    }
+    if (escCount > 1) reesc++;
+    if (bounced) pingpong++;
+    hopDist[hops === 0 ? "0" : hops === 1 ? "1" : hops === 2 ? "2" : "3+"]++;
+  }
+  const bars = ["0", "1", "2", "3+"].map((b) => ({ label: `${b} tier hop${b === "1" ? "" : "s"}`, value: hopDist[b] }));
+  return (
+    <div className="panel span-2">
+      <h2>Tier flow &amp; ping-pong</h2>
+      <p className="why">How often work crosses the L1↔L2 boundary, from the changelog. Ping-pong (bounced L2→back to L1) and re-escalation are pure waste. {records ? "" : "Loading…"}</p>
+      {records && (
+        <>
+          <div className="miniboard">
+            <div><span className="k">clean (0 hops)</span><span className="v tnum">{hopDist["0"]}</span></div>
+            <div><span className="k">ping-pong</span><span className="v tnum" style={{ color: pingpong ? "var(--crit)" : "var(--ok)" }}>{pingpong}</span></div>
+            <div><span className="k">re-escalated</span><span className="v tnum">{reesc}</span></div>
+          </div>
+          <div style={{ marginTop: "0.7rem" }}>
+            <Bars rows={bars} barH={18} onPick={(b) => {
+              const n = parseInt(b.label);
+              const pred = b.label.startsWith("3") ? ((r) => tierHops(r) >= 3) : ((r) => tierHops(r) === n);
+              open({ type: "records", label: `${b.label} · tier flow`, pred, reconcile: b.value, windowed: true });
+            }} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+function tierHops(r) {
+  let hops = 0;
+  for (const c of (r.timeline || []).filter((c) => c.field === "status")) {
+    const from = tof(c.from), to = tof(c.to);
+    if ((from === "L1" || from === "L2") && (to === "L1" || to === "L2") && from !== to) hops++;
+  }
+  return hops;
+}

@@ -9,6 +9,7 @@ const F = {
   tower: "cf[10042]", tier: "cf[10043]", channel: "cf[10045]",
   impact: "cf[10004]", urgency: "cf[10044]", reopened: "cf[10052]",
   resSla: "cf[10051]", respSla: "cf[10050]", escReason: "cf[10046]", kbChecked: "cf[10047]",
+  rootCause: "cf[10048]",
 };
 const KB_NONE = "Yes - none found";
 
@@ -223,6 +224,9 @@ function detail(d, model) {
         jql: `project = ${P} AND priority = ${q("P1 - Critical")}`,
         body: <p className="drill-note">The fast-path tickets: gate-free escalation, Major Incident Manager engaged. Watch how long they stay open.</p>,
       };
+    case "records":
+      return { title: d.label || "Records", jql: d.jql || null,
+        body: d.note ? <p className="drill-note">{d.note}</p> : <div /> };
     default:
       return { title: "Detail", body: <p>No detail.</p>, jql: null };
   }
@@ -293,6 +297,9 @@ function recordSpec(d, model) {
     }
     case "impacturgency": return { pred: (r) => r.impact === d.impact && r.urgency === d.urgency, windowed: true, reconcile: null };
     case "majorincident": return { pred: (r) => r.priority === "P1 - Critical", hi: (r) => r.is_open, hiLab: "still open", windowed: true, reconcile: null };
+    // Generic record drill: panels pass their own predicate/label/jql. Lets the many ITIL
+    // panels drill to records without a bespoke case each.
+    case "records": return { pred: d.pred, hi: d.hi, hiLab: d.hiLab, windowed: d.windowed !== false, reconcile: d.reconcile ?? null };
     default: return null;   // week, ageStatus — aggregate-only
   }
 }
