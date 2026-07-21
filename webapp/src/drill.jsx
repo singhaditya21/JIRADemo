@@ -8,7 +8,7 @@ import { Sparkline, Bars } from "./charts.jsx";
 const F = {
   tower: "cf[10042]", tier: "cf[10043]", channel: "cf[10045]",
   impact: "cf[10004]", urgency: "cf[10044]", reopened: "cf[10052]",
-  resSla: "cf[10051]", respSla: "cf[10050]",
+  resSla: "cf[10051]", respSla: "cf[10050]", escReason: "cf[10046]",
 };
 
 const f1 = (v) => (v == null ? "—" : (Math.round(v * 10) / 10).toFixed(1));
@@ -168,6 +168,46 @@ function detail(d, model) {
           w.reopen_pct != null && ["Reopen rate", pct(w.reopen_pct)],
           w.sla_pct != null && ["Resolution SLA", pct(w.sla_pct)],
         ]} />,
+      };
+    }
+    case "statusgroup": {
+      const bs = Object.fromEntries((model.ageing_by_status?.by_status || []).map(([s, n]) => [s, n]));
+      const inList = d.statuses.map((s) => [s, bs[s] || 0]);
+      const total = inList.reduce((a, [, n]) => a + n, 0);
+      const clause = `project = ${P} AND resolution is EMPTY AND status in (${d.statuses.map(q).join(", ")})`;
+      return {
+        title: d.label,
+        jql: clause,
+        body: <>
+          <div className="drill-big tnum">{total}</div>
+          <KV rows={inList.map(([s, n]) => [s, n])} />
+        </>,
+      };
+    }
+    case "reason": {
+      return {
+        title: `Escalation reason`,
+        jql: `project = ${P} AND ${F.tier} = L2 AND ${F.escReason} = ${q(d.reason)}`,
+        body: <>
+          <div className="drill-big tnum">{d.n}</div>
+          <KV rows={[["Reason", d.reason], ["Escalations", d.n]]} />
+          <p className="drill-note">Recurring reasons with no KB article are the ones to document first — that is what stops L1 escalating them.</p>
+        </>,
+      };
+    }
+    case "kbgap": {
+      return {
+        title: "KB gap — the biggest lever",
+        jql: `project = ${P} AND ${F.tier} = L2`,
+        body: <>
+          <div className="drill-big tnum">{pct(d.pct)}</div>
+          <KV rows={[
+            ["Escalations with no KB article", d.gap],
+            ["Total escalations", d.escalated],
+            ["Gap", pct(d.pct)],
+          ]} />
+          <p className="drill-note">Each gap is an article L2 can write so the same issue resolves at L1 next time.</p>
+        </>,
       };
     }
     default:

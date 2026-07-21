@@ -5,7 +5,23 @@ const f1 = (v) => (v == null ? "—" : (Math.round(v * 10) / 10).toFixed(1));
 const pct = (v) => (v == null ? "—" : f1(v) + "%");
 const sum = (xs) => xs.reduce((a, b) => a + (b || 0), 0);
 
-// The six scoreboard metrics, each with its value, placeholder target, and a weekly trend.
+// Classify a workflow status into a tier bucket by name, so the tier views work on ANY
+// project — OPS's L1/L2 workflow (New/Triage/In Progress L1/Escalated to L2/…) and ITSM's
+// ITIL workflow (Open/Work in progress/Implementing/Awaiting CAB approval/…) have different
+// status names. Waiting states are checked first, then L2 markers, else it's front-line.
+function tierOf(status) {
+  const s = (status || "").toLowerCase();
+  if (/pending|waiting|awaiting|on hold/.test(s)) return "wait";
+  if (/l2|escalat|implement|\bcab\b|approval|problem/.test(s)) return "L2";
+  return "L1";
+}
+function statusesByTier(model) {
+  const g = { L1: [], L2: [], wait: [] };
+  for (const [s, n] of (model.ageing_by_status?.by_status || [])) g[tierOf(s)].push([s, n]);
+  return g;
+}
+const openTier = (g, t) => g[t].reduce((a, [, n]) => a + n, 0);
+
 const METRICS = [
   { key: "ftr_pct", lab: "First-time resolution", unit: "%", note: "at L1" },
   { key: "escalation_pct", lab: "Escalation rate", unit: "%", note: "of all tickets" },
@@ -14,6 +30,7 @@ const METRICS = [
   { key: "response_pct", lab: "Response SLA", unit: "%", note: "attainment" },
   { key: "aged_14d", lab: "Aged > 14 days", unit: "", note: "open backlog" },
 ];
+const M = Object.fromEntries(METRICS.map((m) => [m.key, m]));
 
 function Verdict({ m }) {
   if (!m || !m.verdict) return null;
@@ -22,45 +39,69 @@ function Verdict({ m }) {
   return <span className={`pill ${cls}`}>{m.verdict}{m.target != null ? ` ${arrow}${m.target}${m.target <= 100 ? "%" : ""}` : ""}</span>;
 }
 
-export function Scoreboard({ model, open }) {
-  const sb = model.scoreboard;
-  const weekly = model.weekly || [];
+// ---- the always-on KPI strip, tier-aware --------------------------------------------------
+export function KpiStrip({ model, lens, open }) {
+  const sb = model.scoreboard || {}, weekly = model.weekly || [], kb = model.kb || {};
+  const g = statusesByTier(model);
+  const metric = (key, lab, sub) => {
+    const m = sb[key] || {};
+    return {
+      key, lab, m, verdict: m,
+      value: M[key].unit === "%" ? pct(m.value) : (m.value ?? m.num ?? "—"),
+      sub: sub ?? (m.num != null && m.den != null ? `${m.num}/${m.den}` : ""),
+      drill: { type: "metric", key, lab, note: sub ?? "", unit: M[key].unit },
+    };
+  };
+  let tiles;
+  if (lens === "L1") tiles = [
+    metric("ftr_pct", "First-time resolution", "resolved at L1"),
+    metric("response_pct", "Response SLA", "L1's clock"),
+    metric("escalation_pct", "Escalation rate", "sent to L2"),
+    metric("reopen_pct", "Reopen rate", "closed too early"),
+    { lab: "Open at L1", value: openTier(g, "L1"), sub: "front-line statuses",
+      drill: { type: "statusgroup", label: "Open at L1", statuses: g.L1.map(([s]) => s) } },
+    metric("aged_14d", "Aged > 14 days", "getting stuck"),
+  ];
+  else if (lens === "L2") tiles = [
+    metric("sla_pct", "Resolution SLA", "L2's clock"),
+    { lab: "Escalated in", value: sb.escalation_pct?.num ?? "—", sub: "tickets reaching L2",
+      drill: { type: "statusgroup", label: "Reached L2", statuses: g.L2.map(([s]) => s) } },
+    { lab: "KB gap", value: pct(kb.pct), sub: `${kb.gap}/${kb.escalated} no article`, gap: true,
+      drill: { type: "kbgap", gap: kb.gap, escalated: kb.escalated, pct: kb.pct } },
+    metric("reopen_pct", "Reopen rate", "bounced back"),
+    { lab: "Open at L2", value: openTier(g, "L2"), sub: "escalated & in progress",
+      drill: { type: "statusgroup", label: "Open at L2", statuses: g.L2.map(([s]) => s) } },
+    metric("aged_14d", "Aged > 14 days", "deep work stuck"),
+  ];
+  else tiles = METRICS.map((m) => metric(m.key, m.lab, m.note));
+
   return (
-    <div className="panel col-12">
-      <h2>The scoreboard</h2>
-      <p className="why">Six metrics, chosen so gaming one shows up in another. Targets are placeholders — the pilot replaces them with a measured baseline. <span className="hint">Click any tile to drill in.</span></p>
-      <div className="tiles">
-        {METRICS.map(({ key, lab, unit, note }) => {
-          const m = sb[key] || {};
-          return (
-            <div className="tile clickable" key={key} role="button" tabIndex={0}
-              onClick={() => open({ type: "metric", key, lab, note, unit })}
-              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && open({ type: "metric", key, lab, note, unit })}>
-              <span className="lab">{lab}</span>
-              <span className="val tnum">{unit === "%" ? pct(m.value) : m.value ?? m.num ?? "—"}</span>
-              <span className="meta">
-                {m.num != null && m.den != null ? `${m.num}/${m.den} · ` : ""}{note} <Verdict m={m} />
-              </span>
-              <div style={{ marginTop: 4 }}>
-                <Sparkline
-                  points={weekly.map((w) => ({ x: w.week, y: w[key] ?? null }))}
-                  h={40}
-                  fmt={(v) => (unit === "%" ? pct(v) : v ?? "")}
-                  color={m.verdict === "PASS" ? "var(--ok)" : m.verdict === "GAP" ? "var(--warn)" : "var(--accent)"}
-                />
-              </div>
+    <div className="kpi-strip">
+      {tiles.map((t, i) => (
+        <div key={i} className="kpi clickable" role="button" tabIndex={0}
+          onClick={() => open(t.drill)}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && open(t.drill)}>
+          <span className="lab">{t.lab}</span>
+          <span className="val tnum">{t.value}</span>
+          <span className="sub">{t.sub} {t.m ? <Verdict m={t.m} /> : t.gap ? <span className="pill gap">GAP</span> : null}</span>
+          {t.key && weekly.some((w) => w[t.key] != null) && (
+            <div className="kpi-spark">
+              <Sparkline points={weekly.map((w) => ({ x: w.week, y: w[t.key] ?? null }))} h={24}
+                fmt={(v) => (M[t.key].unit === "%" ? pct(v) : (v ?? ""))}
+                color={t.m?.verdict === "PASS" ? "var(--ok)" : t.m?.verdict === "GAP" ? "var(--warn)" : "var(--accent)"} />
             </div>
-          );
-        })}
-      </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
 
+// ---- shared panels (some take a `lens` for tier framing) ----------------------------------
 export function PairingPanel({ model, open }) {
   const p = model.pairing || {};
   return (
-    <div className="panel col-6">
+    <div className="panel span-2">
       <h2>FTR vs reopen — the honesty pair</h2>
       <p className="why">Closing early lifts first-time resolution and wrecks reopen rate, so neither moves alone. Correlation r = {f1((p.r ?? 0) * 100) / 100 || p.r}. <span className="hint">Click a week.</span></p>
       <Pairing weeks={model.ftr_vs_reopen || []} r={p.r} onPick={(w) => open({ type: "week", w })} />
@@ -71,9 +112,9 @@ export function PairingPanel({ model, open }) {
 export function Analysts({ model, open }) {
   const a = model.analysts || {};
   return (
-    <div className="panel col-6">
+    <div className="panel span-2">
       <h2>Escalation rate per analyst</h2>
-      <p className="why">Pilot exit criterion 6: no analyst diverges beyond 2σ of the tower mean. Red dots are outside the band. <span className="hint">Click a name.</span></p>
+      <p className="why">No analyst should diverge beyond 2σ of the tower mean. Red dots are outside the band. <span className="hint">Click a name.</span></p>
       <AnalystBand people={a.people || []} mean={a.mean ?? a.pooled ?? 0} lo={a.lo ?? 0} hi={a.hi ?? 0}
         onPick={(p) => open({ type: "analyst", p, mean: a.mean ?? a.pooled ?? 0, lo: a.lo ?? 0, hi: a.hi ?? 0 })} />
       <div className="legend">
@@ -85,13 +126,20 @@ export function Analysts({ model, open }) {
   );
 }
 
-export function KBGap({ model, open }) {
+export function KBGap({ model, open, lens }) {
   const kb = model.kb || {};
+  const title = lens === "L2" ? "KB debt — articles to write"
+    : lens === "L1" ? "KB coverage — why you keep escalating" : "KB gap — the biggest lever";
+  const why = lens === "L2"
+    ? `${kb.gap} escalations found no article. Each one is an article for L2 to write so L1 can resolve it next time.`
+    : lens === "L1"
+      ? `${kb.gap} of ${kb.escalated} escalations found no KB article — where there's no article, L1 has to escalate.`
+      : `${kb.gap} of ${kb.escalated} escalations (${pct(kb.pct)}) found no KB article. That is L1's ceiling made visible.`;
   return (
-    <div className="panel col-6">
-      <h2>KB gap — the biggest lever</h2>
-      <p className="why">{kb.gap} of {kb.escalated} escalations ({pct(kb.pct)}) found no KB article. That is L1's ceiling made visible — trended weekly below. <span className="hint">Click a tower bar.</span></p>
-      <Sparkline points={(kb.series || []).map((s) => ({ x: s.week, y: s.gap_pct }))} fmt={pct} color="var(--warn)" />
+    <div className="panel span-2">
+      <h2>{title}</h2>
+      <p className="why">{why} <span className="hint">Click a tower.</span></p>
+      <Sparkline points={(kb.series || []).map((s) => ({ x: s.week, y: s.gap_pct }))} fmt={pct} color="var(--warn)" h={70} />
       <div className="scrollx" style={{ marginTop: "0.8rem" }}>
         <Bars rows={(kb.by_tower || []).map(([label, n]) => ({ label, value: n }))} barH={16}
           onPick={(r) => open({ type: "kbtower", label: r.label, value: r.value })} />
@@ -109,7 +157,7 @@ export function Towers({ model, open }) {
   ];
   const click = (k) => setSort((s) => ({ key: k, dir: s.key === k ? -s.dir : -1 }));
   return (
-    <div className="panel col-6">
+    <div className="panel span-2">
       <h2>Tower comparison</h2>
       <p className="why">Sortable header; click a row to drill. The pilot ranks on volume × improvement headroom.</p>
       <div className="scrollx">
@@ -145,7 +193,7 @@ export function Intake({ model, open }) {
     color: r.shadow ? "var(--warn)" : "var(--accent)", _row: r,
   }));
   return (
-    <div className="panel col-6">
+    <div className="panel">
       <h2>Intake mix</h2>
       <p className="why">Chat is shadow support pulled into the record — otherwise invisible demand. <span className="hint">Click a channel.</span></p>
       <Bars rows={rows} barH={26} fmt={(v) => v}
@@ -158,7 +206,7 @@ export function Ageing({ model, open }) {
   const a = model.ageing || {};
   const rows = (a.buckets || []).map((b) => ({ label: b.label, value: b.n, color: b.breach ? "var(--crit)" : "var(--accent)", _b: b }));
   return (
-    <div className="panel col-6">
+    <div className="panel">
       <h2>Open-work ageing</h2>
       <p className="why">{a.total} open · median {f1(a.median)}d · oldest {f1(a.oldest)}d · {a.over_30} over 30 days. <span className="hint">Click a bucket.</span></p>
       <Bars rows={rows} barH={22} onPick={(r) => open({ type: "ageing", b: r._b })} />
@@ -166,26 +214,26 @@ export function Ageing({ model, open }) {
   );
 }
 
-// ---- new metric panels (surface model data the tower did not previously show) ----------
-
-export function SlaOutcomes({ model, open }) {
+export function SlaOutcomes({ model, open, lens }) {
   const s = model.sla_detail || {};
   const row = (kind, met, br) => {
     const total = (met || 0) + (br || 0);
     return { kind, met: met || 0, br: br || 0, total, att: total ? (met / total) * 100 : null };
   };
-  const rows = [row("resolution", s.resolution_met, s.resolution_breached),
-               row("response", s.response_met, s.response_breached)];
+  let rows = [row("resolution", s.resolution_met, s.resolution_breached),
+              row("response", s.response_met, s.response_breached)];
+  if (lens === "L1") rows = [rows[1], rows[0]];  // response first for L1
+  const focus = lens === "L1" ? "response" : lens === "L2" ? "resolution" : null;
   return (
-    <div className="panel col-6">
+    <div className="panel">
       <h2>SLA outcomes</h2>
-      <p className="why">Met vs breached for both clocks. The scoreboard shows attainment; this shows the counts behind it. <span className="hint">Click a row.</span></p>
+      <p className="why">Met vs breached for both clocks.{focus ? ` ${focus === "response" ? "Response" : "Resolution"} is this tier's SLA.` : ""} <span className="hint">Click a row.</span></p>
       <div className="scrollx">
         <table>
           <thead><tr><th>Clock</th><th className="num">Met</th><th className="num">Breached</th><th className="num">Attainment</th></tr></thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.kind} className="clickable" onClick={() => open({ type: "sla", kind: r.kind })}>
+              <tr key={r.kind} className={"clickable" + (r.kind === focus ? " row-focus" : "")} onClick={() => open({ type: "sla", kind: r.kind })}>
                 <td style={{ textTransform: "capitalize" }}>{r.kind}</td>
                 <td className="num tnum">{r.met}</td>
                 <td className="num tnum">{r.br}</td>
@@ -206,9 +254,9 @@ export function BacklogFlow({ model, open }) {
   const closed = sum(weekly.map((w) => w.closed));
   const last = bk[bk.length - 1] || {};
   return (
-    <div className="panel col-6">
+    <div className="panel">
       <h2>Backlog &amp; flow</h2>
-      <p className="why">Open backlog over time, and intake vs throughput across the window. Net flow tells you whether the tower is keeping up. <span className="hint">Click a point.</span></p>
+      <p className="why">Open backlog over time, and intake vs throughput. Net flow tells you whether the tower is keeping up. <span className="hint">Click a point.</span></p>
       <Sparkline points={bk.map((b) => ({ x: b.week, y: b.open }))} h={70} fmt={(v) => v}
         onPick={(p, i) => open({ type: "week", w: { ...bk[i], ...(weekly[weekly.length - bk.length + i] || {}) } })} />
       <div className="miniboard">
@@ -225,7 +273,7 @@ export function BacklogFlow({ model, open }) {
 export function ChannelQuality({ model, open }) {
   const rows = model.channel_quality || [];
   return (
-    <div className="panel col-6">
+    <div className="panel span-2">
       <h2>Channel quality</h2>
       <p className="why">Not all intake is equal — first-time resolution and escalation rate by channel. <span className="hint">Click a channel.</span></p>
       <div className="scrollx">
@@ -250,9 +298,8 @@ export function ChannelQuality({ model, open }) {
 export function AgeingByStatus({ model, open }) {
   const a = model.ageing_by_status || {};
   const buckets = a.buckets || [];
-  const rows = buckets.map((b) => ({ label: b.label, value: (b.owned || 0) + (b.paused || 0), _b: b }));
   return (
-    <div className="panel col-6">
+    <div className="panel span-2">
       <h2>Ageing — owned vs paused</h2>
       <p className="why">{a.owned_total ?? 0} owned (SLA running) · {a.paused_total ?? 0} paused (waiting on customer/vendor). Paused time should not count against attainment. <span className="hint">Click a band.</span></p>
       <div className="scrollx">
@@ -269,6 +316,39 @@ export function AgeingByStatus({ model, open }) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+// ---- new tier-specific panels -------------------------------------------------------------
+export function QueueByStatus({ model, open, tier }) {
+  const g = statusesByTier(model);
+  const title = tier === "L1" ? "Front-line queue" : "L2 work in progress";
+  const why = tier === "L1"
+    ? "What's on the L1 floor right now — triage and first-touch work."
+    : "What's been escalated and is in specialist hands.";
+  const rows = [
+    ...g[tier].map(([s, n]) => ({ label: s, value: n, color: "var(--accent)", _s: s })),
+    ...g.wait.map(([s, n]) => ({ label: s, value: n, dim: true, color: "var(--warn)", _s: s })),
+  ];
+  return (
+    <div className="panel span-2">
+      <h2>{title}</h2>
+      <p className="why">{why} Amber rows are waiting (SLA paused). <span className="hint">Click a status.</span></p>
+      {rows.length
+        ? <Bars rows={rows} barH={24} onPick={(r) => open({ type: "statusgroup", label: r.label, statuses: [r._s] })} />
+        : <div className="state">no open work in this tier</div>}
+    </div>
+  );
+}
+
+export function EscalationReasons({ model, open }) {
+  const rows = (model.kb?.by_reason || []).map(([reason, n]) => ({ label: reason, value: n, _r: reason }));
+  return (
+    <div className="panel span-2">
+      <h2>Why work escalates</h2>
+      <p className="why">The reasons L1 hands work to L2. The top reasons are your KB backlog — write those articles first. <span className="hint">Click a reason.</span></p>
+      <Bars rows={rows} barH={22} onPick={(r) => open({ type: "reason", reason: r._r, n: r.value })} />
     </div>
   );
 }

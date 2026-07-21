@@ -6,12 +6,25 @@ It is the moving-parts sibling of the static `app/control_tower.py` page: same n
 (both come from `app/analytics.py`), but with a project switcher, window selector, theme
 toggle, refresh, and sortable tables.
 
-**Eleven panels, every chart drillable.** Scoreboard, FTR-vs-reopen, escalation-per-analyst,
-SLA outcomes, backlog & flow, KB gap, tower comparison, channel quality, intake mix, open-work
-ageing, and ageing owned-vs-paused. Click any tile, bar, row, dot, or point to open a drawer
-with the numbers behind the mark and a deep link into Jira's issue navigator (JQL built with
-`cf[<id>]` clause names so it resolves exactly). `src/drill.jsx` holds the drawer and the
-per-mark detail; the chart primitives in `src/charts.jsx` take an `onPick` callback.
+**Three tier lenses — Overview / L1 / L2.** The switcher in the header reshapes the whole
+board around who's looking (`lensPanels()` in `src/App.jsx`):
+
+- **Overview** — the whole system: the six-metric KPI strip + every panel.
+- **L1** (front line) — a front-line queue by status, Response SLA (L1's clock), triage
+  quality (FTR↔reopen), escalation-per-analyst, KB *coverage* (why you keep escalating),
+  channel quality, intake.
+- **L2** (second line) — an L2 work-in-progress queue, Resolution SLA (L2's clock), KB *debt*
+  ("articles to write"), why work escalates (escalation reasons), tower comparison, ageing
+  owned-vs-paused, backlog & flow.
+
+An always-on **KPI strip** at the top carries the tier's headline numbers. Statuses are
+bucketed into L1/L2/waiting by name (`tierOf()`), so the tier views work on both OPS's L1/L2
+workflow and ITSM's ITIL workflow without hard-coded status lists.
+
+**Every chart is drillable.** Click any KPI tile, bar, table row, analyst dot, scatter or
+sparkline point to open a drawer (`src/drill.jsx`) with the numbers behind the mark and a
+deep link into Jira's issue navigator (JQL built with `cf[<id>]` clause names so it resolves
+exactly). The chart primitives in `src/charts.jsx` take an `onPick` callback.
 
 ## Two data sources, one UI
 

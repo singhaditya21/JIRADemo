@@ -1,10 +1,51 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { Scoreboard, PairingPanel, Analysts, KBGap, Towers, Intake, Ageing,
-  SlaOutcomes, BacklogFlow, ChannelQuality, AgeingByStatus } from "./panels.jsx";
+import { KpiStrip, PairingPanel, Analysts, KBGap, Towers, Intake, Ageing,
+  SlaOutcomes, BacklogFlow, ChannelQuality, AgeingByStatus,
+  QueueByStatus, EscalationReasons } from "./panels.jsx";
 import { Drawer } from "./drill.jsx";
 
 const PROJECTS = ["OPS", "ITSM"];
 const WINDOWS = [30, 90, 180];
+const LENSES = [
+  { id: "overview", lab: "Overview", blurb: "The whole system — how the tower is performing end to end." },
+  { id: "L1", lab: "L1", blurb: "The front line — triage, deflection, response SLA, and what to escalate." },
+  { id: "L2", lab: "L2", blurb: "Second line — escalations coming in, resolution SLA, and the KB debt to clear." },
+];
+
+// Which panels each lens shows, in order. Tier lenses reframe shared panels and add their own.
+function lensPanels(lens, model, open) {
+  const P = { model, open };
+  if (lens === "L1") return [
+    <QueueByStatus key="q" {...P} tier="L1" />,
+    <SlaOutcomes key="sla" {...P} lens="L1" />,
+    <PairingPanel key="pair" {...P} />,
+    <Analysts key="an" {...P} />,
+    <KBGap key="kb" {...P} lens="L1" />,
+    <ChannelQuality key="ch" {...P} />,
+    <Intake key="in" {...P} />,
+  ];
+  if (lens === "L2") return [
+    <QueueByStatus key="q" {...P} tier="L2" />,
+    <SlaOutcomes key="sla" {...P} lens="L2" />,
+    <KBGap key="kb" {...P} lens="L2" />,
+    <EscalationReasons key="er" {...P} />,
+    <Towers key="tw" {...P} />,
+    <AgeingByStatus key="abs" {...P} />,
+    <BacklogFlow key="bf" {...P} />,
+  ];
+  return [
+    <PairingPanel key="pair" {...P} />,
+    <Analysts key="an" {...P} />,
+    <SlaOutcomes key="sla" {...P} />,
+    <BacklogFlow key="bf" {...P} />,
+    <KBGap key="kb" {...P} />,
+    <Towers key="tw" {...P} />,
+    <ChannelQuality key="ch" {...P} />,
+    <Intake key="in" {...P} />,
+    <Ageing key="ag" {...P} />,
+    <AgeingByStatus key="abs" {...P} />,
+  ];
+}
 
 // Where the data comes from:
 //   - "static" (GitHub Pages): fetch the JSON baked at deploy time by app.export_pages.
@@ -58,6 +99,8 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useTheme();
   const [drill, setDrill] = useState(null);   // the clicked-into detail, or null
+  const [lens, setLens] = useState(() => localStorage.getItem("ct-lens") || "overview");
+  useEffect(() => { localStorage.setItem("ct-lens", lens); }, [lens]);
   const reqId = useRef(0);
 
   const load = useCallback((quiet = false) => {
@@ -99,6 +142,11 @@ export default function App() {
           </div>
         </div>
         <div className="controls">
+          <div className="seg seg-lens">
+            {LENSES.map((l) => (
+              <button key={l.id} className={l.id === lens ? "on" : ""} onClick={() => setLens(l.id)} title={l.blurb}>{l.lab}</button>
+            ))}
+          </div>
           <div className="seg">
             {PROJECTS.map((p) => (
               <button key={p} className={p === project ? "on" : ""} onClick={() => setProject(p)}>{p}</button>
@@ -122,18 +170,13 @@ export default function App() {
         {err && <div className="state err">could not load: {err}<br /><br />{backendHint}</div>}
         {model && !err && (
           <>
+            <div className="lens-caption">
+              <strong>{LENSES.find((l) => l.id === lens).lab}</strong>
+              <span>{LENSES.find((l) => l.id === lens).blurb}</span>
+            </div>
+            <KpiStrip model={model} lens={lens} open={setDrill} />
             <div className="grid">
-              <Scoreboard model={model} open={setDrill} />
-              <PairingPanel model={model} open={setDrill} />
-              <Analysts model={model} open={setDrill} />
-              <SlaOutcomes model={model} open={setDrill} />
-              <BacklogFlow model={model} open={setDrill} />
-              <KBGap model={model} open={setDrill} />
-              <Towers model={model} open={setDrill} />
-              <ChannelQuality model={model} open={setDrill} />
-              <Intake model={model} open={setDrill} />
-              <Ageing model={model} open={setDrill} />
-              <AgeingByStatus model={model} open={setDrill} />
+              {lensPanels(lens, model, setDrill)}
             </div>
             <p className="note">
               Every figure is computed by <span className="mono">app/analytics.py</span> — the same code the static
