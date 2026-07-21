@@ -101,6 +101,10 @@ WORKFLOWS = {
             ("Pending", "Cancel"): "Canceled",
             ("Completed", "Close"): "Closed",
             ("Canceled", "Close"): "Closed",
+            # escalation path added by jira_config.jsm_workflow
+            ("Work in progress", "Escalate to L2"): "Escalated to L2",
+            ("Escalated to L2", "Accept at L2"): "Work in progress",
+            ("Escalated to L2", "Resolve"): "Completed",
         },
     },
     "Service Request": {
@@ -171,6 +175,9 @@ WORKFLOWS = {
             ("Pending", "Back to under review"): "Under review",
             ("Completed", "Close"): "Closed",
             ("Canceled", "Close"): "Closed",
+            # escalation path added by jira_config.jsm_workflow
+            ("Under investigation", "Escalate to L2"): "Escalated to L2",
+            ("Escalated to L2", "Accept at L2"): "Under investigation",
         },
     },
 }
@@ -204,7 +211,7 @@ DONE_STATUSES = {"Closed", "Completed", "Resolved", "Canceled", "Declined"}
 STATUS_FOR = {
     "Incident": {
         "NEW": "Open", "TRIAGE": "Open", "WORKING": "Work in progress",
-        "ESCALATED": "Work in progress", "PENDING_CUST": "Pending",
+        "ESCALATED": "Escalated to L2", "PENDING_CUST": "Pending",
         "PENDING_VENDOR": "Pending", "RESOLVED": "Completed",
         "CLOSED": "Closed", "CANCELLED": "Canceled",
     },
@@ -222,7 +229,7 @@ STATUS_FOR = {
     },
     "Problem": {
         "NEW": "Open", "TRIAGE": "Under review", "WORKING": "Under investigation",
-        "ESCALATED": "Under investigation", "PENDING_CUST": "Pending",
+        "ESCALATED": "Escalated to L2", "PENDING_CUST": "Pending",
         "PENDING_VENDOR": "Pending", "RESOLVED": "Completed",
         "CLOSED": "Closed", "CANCELLED": "Canceled",
     },
@@ -258,8 +265,12 @@ def route(jtype, target, escalated, emergency=False):
         via.append("Implementing")
     elif jtype == "Problem" and target in ("Completed", "Closed", "Pending"):
         via = ["Under review", "Under investigation"]
+        if escalated:
+            via.append("Escalated to L2")   # workflow now carries the path (jsm_workflow)
     elif jtype == "Incident" and target in ("Completed", "Closed", "Pending"):
         via = ["Work in progress"]
+        if escalated:
+            via.append("Escalated to L2")
 
     hops, cur = [], start
     for waypoint in via + [target]:
@@ -458,6 +469,12 @@ def build_ticket(idx, now, itype, tower):
     if stage == "ESCALATED":
         escalated = True
         tier = "L2"
+    # An escalated ticket sitting at a pre-escalation status (NEW/TRIAGE/WORKING) would
+    # carry Support Tier = L2 with no Escalated-to-L2 hop in its history - the exact
+    # incoherence this whole fix exists to remove. Promote it to the escalated stage so
+    # its current status matches its tier.
+    if escalated and stage in ("NEW", "TRIAGE", "WORKING"):
+        stage = "ESCALATED"
     if stage == "AWAITING_APPROVAL":
         # Nobody has worked it yet, so it cannot have been escalated.
         escalated = False
@@ -681,6 +698,34 @@ def create_one(j, t, F, settable):
 # ---------------------------------------------------------------------------
 # OPS guard. OPS is live and demoed; this script must not be able to touch it.
 # ---------------------------------------------------------------------------
+def reset_itsm(j, workers):
+    """Delete every issue in ITSM (never OPS). Guarded by the project key assertion."""
+    assert PROJECT != "OPS"
+    keys, token = [], None
+    while True:
+        body = {"jql": f"project = {PROJECT} ORDER BY created ASC",
+                "maxResults": 100, "fields": ["key"]}
+        if token:
+            body["nextPageToken"] = token
+        r = j.post("/rest/api/3/search/jql", body)
+        keys += [i["key"] for i in r.get("issues", [])]
+        token = r.get("nextPageToken")
+        if not token:
+            break
+    log(f"  reset: deleting {len(keys)} {PROJECT} issues")
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    done = 0
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = [ex.submit(j.delete, f"/rest/api/3/issue/{k}?deleteSubtasks=true") for k in keys]
+        for f in as_completed(futs):
+            try:
+                f.result()
+                done += 1
+            except Exception:
+                pass
+    log(f"  reset: deleted {done}")
+
+
 def guard_ops(j, label):
     ops = json.loads(OPS_STATE.read_text())
     n = j.post("/rest/api/3/search/approximate-count", {"jql": "project = OPS"})["count"]
@@ -848,6 +893,8 @@ def main():
     ap.add_argument("--workers", type=int, default=4)  # single-writer phase: max 4
     ap.add_argument("--backfill-only", action="store_true",
                     help="repair resolution/assignee on already-created tickets")
+    ap.add_argument("--reset", action="store_true",
+                    help="delete all ITSM issues before seeding (never touches OPS)")
     args = ap.parse_args()
 
     require_env()
@@ -874,6 +921,14 @@ def main():
         backfill(j, F, args.workers)
         guard_ops(j, "after")
         return
+
+    if args.reset and not args.dry_run:
+        guard_ops(j, "before reset")
+        reset_itsm(j, args.workers)
+        if DONE.exists():
+            DONE.unlink()   # clear the resume cursor so reseed starts fresh
+            log("  reset: cleared resume cursor")
+        guard_ops(j, "after reset")
 
     # The plan is a pure function of (SEED, count) - which is why the resume file
     # records the count and refuses to continue against a different one.

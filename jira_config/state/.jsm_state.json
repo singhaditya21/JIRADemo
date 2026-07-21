@@ -59,7 +59,7 @@
     "[System] Post-incident review": 20
   },
   "priority_scheme_id": "10166",
-  "seeded": 406,
+  "seeded": 420,
   "seed_label": "tower-seed",
   "queues": {
     "L1 Queue": "74",
