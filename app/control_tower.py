@@ -107,10 +107,27 @@ def attrs(**kw):
     return (" " + " ".join(out)) if out else ""
 
 
+# Tags that exist in HTML and are NOT void. `<span/>` is valid XML and valid
+# inside SVG, but an HTML parser reads it as an OPENING tag with no close, so
+# the element silently swallows everything that follows it until the enclosing
+# element ends. That produced a legend whose first swatch ate all three labels.
+# el() is the SVG builder; htag() is the HTML one. This guard makes the mistake
+# impossible rather than merely documented.
+_HTML_NONVOID = frozenset((
+    "a", "button", "div", "dd", "dl", "dt", "em", "footer", "h1", "h2", "h3",
+    "header", "label", "li", "ol", "p", "section", "span", "strong", "table",
+    "tbody", "td", "th", "thead", "tr", "ul"))
+
+
 def el(tag, *children, **kw):
     inner = "".join(c for c in children if c)
     if inner:
         return "<%s%s>%s</%s>" % (tag, attrs(**kw), inner, tag)
+    if tag in _HTML_NONVOID:
+        raise ValueError(
+            "el(%r) with no children would emit a self-closing <%s/>, which an "
+            "HTML parser treats as an unclosed opening tag. Use htag(%r, \"\", "
+            "...) instead." % (tag, tag, tag))
     return "<%s%s/>" % (tag, attrs(**kw))
 
 
@@ -301,19 +318,27 @@ def baseline(x0, x1, y):
 
 
 def week_ticks(weeks, sx, plot_w, y):
-    """X labels, thinned so they cannot collide, always including the last."""
+    """X labels, thinned so they cannot collide, always including the last.
+
+    The last label is forced, so the stride alone is not enough: if the final
+    week does not fall on the stride, the label before it can land within a few
+    pixels and the two overprint ("13 Jul12 Jul"). Any previously chosen label
+    closer than one full stride to the forced last one is therefore dropped -
+    the end of the axis is the label a reader actually needs.
+    """
     n = len(weeks)
     if n == 0:
         return ""
     every = max(1, int(math.ceil(n * 46.0 / max(plot_w, 1))))
-    out = []
-    for i, w in enumerate(weeks):
-        if i % every and i != n - 1:
-            continue
-        out.append(text(daylab(w), "%.2f" % sx(i), y, text_anchor="middle",
-                        font_family="var(--mono)", font_size=12,
-                        fill="var(--c-mute)"))
-    return "".join(out)
+    idx = [i for i in range(n) if i % every == 0]
+    if (n - 1) not in idx:
+        while idx and (n - 1) - idx[-1] < every:
+            idx.pop()
+        idx.append(n - 1)
+    return "".join(
+        text(daylab(weeks[i]), "%.2f" % sx(i), y, text_anchor="middle",
+             font_family="var(--mono)", font_size=12, fill="var(--c-mute)")
+        for i in idx)
 
 
 def svg_open(vbw, vbh, title, desc, cls="chart__svg"):
@@ -556,7 +581,11 @@ tr.rank1 { background: var(--accent-dim); }
 /* ---- legends & notes ---- */
 .legend { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4);
   margin-top: var(--sp-3); font-size: var(--fs-sm); color: var(--ink-soft); }
-.legend__i { display: inline-flex; align-items: center; gap: 0.45em; }
+/* flex: 0 0 auto is load-bearing. Without it a legend item shrinks below its
+   content and the label wraps one character per line; with it, an item that
+   does not fit moves to the next row instead, which is what wrap is for. */
+.legend__i { display: inline-flex; align-items: center; gap: 0.45em;
+  flex: 0 0 auto; max-width: 100%; }
 .legend__sw { width: 14px; height: 10px; border-radius: 2px; flex: 0 0 auto; }
 .legend__ln { width: 16px; height: 2px; border-radius: 1px; flex: 0 0 auto; }
 .legend__n { font-family: var(--mono); font-variant-numeric: tabular-nums;
@@ -976,13 +1005,13 @@ def panel_pairing(m):
                  "those where first-time resolution rose while reopen rate rose "
                  "with it.", "".join(parts))
     body += htag("div",
-                 htag("span", el("span", class_="legend__ln",
+                 htag("span", htag("span", "", class_="legend__ln",
                                  style="background:var(--s1)"),
                       "First-time resolution at L1", class_="legend__i"),
-                 htag("span", el("span", class_="legend__ln",
+                 htag("span", htag("span", "", class_="legend__ln",
                                  style="background:var(--s2)"),
                       "Reopen rate", class_="legend__i"),
-                 htag("span", el("span", class_="legend__sw",
+                 htag("span", htag("span", "", class_="legend__sw",
                                  style="background:var(--sev-warn-wash);"
                                        "border:1px solid var(--sev-warn)"),
                       "⚑ Both moved the wrong way together",
@@ -1295,10 +1324,10 @@ def panel_kb(m):
                  "and those that found none, with the share below.",
                  "".join(parts))
     body += htag("div",
-                 htag("span", el("span", class_="legend__sw",
+                 htag("span", htag("span", "", class_="legend__sw",
                                  style="background:var(--s2)"),
                       "No article found", class_="legend__i"),
-                 htag("span", el("span", class_="legend__sw",
+                 htag("span", htag("span", "", class_="legend__sw",
                                  style="background:var(--o2)"),
                       "Article applied", class_="legend__i"),
                  class_="legend")
@@ -1482,7 +1511,7 @@ def panel_intake(m):
     for i, c in enumerate(mix):
         tok = slots[i % len(slots)]
         leg.append(htag("span",
-                        el("span", class_="legend__sw",
+                        htag("span", "", class_="legend__sw",
                            style="background:var(%s)" % tok),
                         _h(c["channel"]),
                         htag("span", "%d · %s" % (c["n"], pctlab(c["pct"], 1)),

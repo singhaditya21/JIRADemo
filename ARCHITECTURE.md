@@ -10,7 +10,7 @@ demo data can never reach production. If you are adding a file, §4 tells you wh
 | `shared/` | The tower model, the Jira HTTP client, runtime field resolution. Imports **stdlib only**. | always |
 | `jira_config/` | Infrastructure as code. Creates and reconciles projects, fields, workflows, filters, dashboards. | on change |
 | `fixtures/` | Demo and test data. Generates tickets and drives them through transitions. | never in production |
-| `app/` | The product — SLA engine and metrics. Stateless, read-mostly. | continuously |
+| `app/` | The product — issue store, analytics, SLA engine, metrics, control tower. Stateless, read-mostly. | continuously |
 | `tools/` | Repo hygiene. Not part of the system. | pre-commit |
 
 Dependency direction is one-way and enforced by review:
@@ -99,11 +99,36 @@ If the honest answer is "two of these", the file is doing two jobs. Split it.
 Everything is a module. There are no `sys.path` hacks and no scripts to execute by path.
 
 ```bash
-python3 -m jira_config.apply --dry-run     # rehearse the whole build
-python3 -m app.cli metrics --project OPS   # the six scoreboard metrics
+python3 -m jira_config.apply --dry-run              # rehearse the whole build
+python3 -m app.cli metrics --project OPS            # the six scoreboard metrics
 python3 -m app.cli sla --project OPS --dry-run
-python3 tools/check_consistency.py         # before every commit
+python3 -m app.cli tower --project OPS --out out/control-tower.html
+python3 tools/check_consistency.py                  # before every commit
 ```
 
 `--project` is **required** on `app.cli`. That is deliberate: it is the flag that lets the
 same binary report on `OPS` and `ITSM` without either project's identity being compiled in.
+
+## 6. The `app/` internals — and why the split inside it matters
+
+`app/` is four files behind one CLI, and the split inside it is the same discipline as the
+package split, one level down:
+
+| Module | Job | Touches Jira? |
+|---|---|---|
+| `store.py` | Fetch every issue **once**, paginated, into typed records. | Yes — the only reader |
+| `analytics.py` | Pure functions: records in, numbers out. All seven control-tower panels. | **No** |
+| `sla_engine.py` / `metrics.py` | The SLA recompute and the six-metric scoreboard. | Read-only |
+| `control_tower.py` | Render a self-contained HTML control tower from the analytics. | No — takes data in |
+
+**`analytics.py` makes no network calls.** That is what lets the metric definitions be
+tested against a fixed list of records with no Jira at all — the thing the repo did not have
+before and now can. `store.py` is the single seam where a wire format meets the app; keep it
+that way, or the "testable without Jira" property evaporates the first time a metric reaches
+back to the network for one more field.
+
+**Why the control tower is HTML and not a live dashboard.** It renders once and is
+self-contained — no server, no CDN, works offline, same as `demo.html`. It exists because
+Jira's own dashboards cannot trend a custom datetime field, normalise a rate per analyst, or
+pair two metrics so gaming one exposes the other. If a panel here only reproduces a Jira
+gadget, it does not belong here.

@@ -213,3 +213,13 @@ verification below was read-only or `--dry-run`.
 | 69 | Exactly two live projects remain, both seeded | ✅ VERIFIED 2026-07-20 | `OPS` (420 issues, 171 tier-L2, 171 gate evidence) and `ITSM` (421, 167). `KAN`, `SAM1` and `SUP` deleted — all three were Atlassian template content with no user-authored work. |
 | 70 | Deleting `SUP` did not disturb `ITSM` | ✅ VERIFIED 2026-07-20 | `ITSM` is now the only service desk (id 8); counts unchanged; the `OPS` gate validator still reads back as `system:validate-field-value`. Deleting `SUP` also disposed of the three undeletable `ZZ DELETE ME` queues from #62, which closes that item. |
 | 71 | Nine projects sit in trash and were **not** purged | ⚠️ **DELIBERATE** | `KAN`, `SAM1`, `SUP`, `JSMTEST`, `ZZSLA`, `ZZTMP1-4`. Deletion moves a project to trash, which is recoverable; emptying trash is irreversible and was left as the account owner's decision. |
+
+
+## Control tower app — 2026-07-20
+
+| # | Claim | Status | Evidence |
+|---|---|---|---|
+| 72 | `app/control_tower.py` generates a self-contained HTML control tower from live Jira | ✅ VERIFIED 2026-07-20 | `python3 -m app.cli tower --project OPS` reads 420 issues in 5 requests and writes a 124 KB self-contained file (inline CSS/SVG, no CDN). Runs for `ITSM` too (421 issues). |
+| 73 | Every control-tower figure matches `app/metrics.py`, the reference implementation | ✅ VERIFIED 2026-07-20 | FTR 61.8% (215/348), escalation 40.7%, reopen 4.3%, resolution SLA 78.9%, response SLA 96.6%, aged>14d 60, KB gap 79/171 (46%) — all present in the HTML and identical to the metrics CLI. |
+| 74 | The control tower obeys the layer boundary | ✅ VERIFIED 2026-07-20 | `analytics.py` makes no Jira calls (pure functions); `store.py` is the only reader; the generator ran with `jira_config/state/.build_state.json` at chmod 000. HTML is valid (tags balanced, CSS braces balanced, both themes defined, no NaN coordinates — the only `NaN` token is inside `isNaN()` in the sort JS). |
+| 75 | The control tower shows what Jira dashboards structurally cannot | ⚠️ **PARTLY — panels present, weekly-trend fidelity unverified** | Seven panels render (scoreboard, escalation-per-analyst with 2σ, reopen, KB gap, tower comparison, intake, ageing). The weekly-trend sparklines were not cross-checked bucket-by-bucket against a hand computation — the headline figures match but the per-week series is asserted, not verified. Worth a spot check before relying on the trend lines. |
