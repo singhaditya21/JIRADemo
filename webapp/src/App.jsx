@@ -111,17 +111,36 @@ function Freshness({ iso }) {
   return <span className="fresh" title={`data generated ${abs}`}>updated {rel}</span>;
 }
 
+// Board state lives in the URL hash (#/PROJECT/LENS/DAYS) so any view is a shareable,
+// bookmarkable link. Parsed on load; kept in sync as the controls change.
+function parseHash() {
+  const m = (window.location.hash || "").match(/^#\/([A-Za-z]+)(?:\/([A-Za-z0-9]+))?(?:\/(\d+))?/);
+  if (!m) return {};
+  const days = m[3] ? Number(m[3]) : undefined;
+  return {
+    project: PROJECTS.includes(m[1]) ? m[1] : undefined,
+    lens: LENSES.some((l) => l.id === m[2]) ? m[2] : undefined,
+    days: WINDOWS.includes(days) ? days : undefined,
+  };
+}
+
 export default function App() {
-  const [project, setProject] = useState("OPS");
-  const [days, setDays] = useState(90);
+  const boot = parseHash();
+  const [project, setProject] = useState(boot.project || "OPS");
+  const [days, setDays] = useState(boot.days || 90);
   const [model, setModel] = useState(null);
   const [err, setErr] = useState(null);
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useTheme();
   const [drill, setDrill] = useState(null);   // the clicked-into detail, or null
   const [records, setRecords] = useState({}); // {project: [...]}, lazy-loaded for drills
-  const [lens, setLens] = useState(() => localStorage.getItem("ct-lens") || "overview");
+  const [lens, setLens] = useState(boot.lens || localStorage.getItem("ct-lens") || "overview");
   useEffect(() => { localStorage.setItem("ct-lens", lens); }, [lens]);
+  // keep the URL in sync so the current view is a shareable link
+  useEffect(() => {
+    const h = `#/${project}/${lens}/${days}`;
+    if (window.location.hash !== h) window.history.replaceState(null, "", h);
+  }, [project, lens, days]);
   const reqId = useRef(0);
 
   // Lazy-load the record-level dataset once the aggregate model is up (record-driven panels

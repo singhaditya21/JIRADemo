@@ -236,3 +236,18 @@ tr.clickable:hover td { background: var(--accent-dim); }
   margin: 1rem 0 0.4rem; padding: 0.9rem 0; border-top: 1px solid var(--rule); }
 .cohort-h { font-family: var(--mono); font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.06em;
   color: var(--muted); display: block; margin-bottom: 0.3rem; }
+
+/* ---- cross-filter, sort, export on the record list ------------------------ */
+.cohort { display: block; }
+.cohort-head { font-family: var(--mono); font-size: 0.66rem; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--muted); margin-bottom: 0.55rem; }
+.cohort-hint { text-transform: none; letter-spacing: 0; }
+.cohort-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.9rem 1.2rem; }
+.rl-toggle { margin-left: 0; }
+.rl-actions { margin-left: auto; display: inline-flex; gap: 0.35rem; }
+.rl-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.1rem 0 0.55rem; }
+.rl-chip { font: inherit; font-size: 0.72rem; cursor: pointer; background: var(--accent-dim);
+  color: var(--accent); border: 1px solid var(--accent); border-radius: 12px; padding: 0.1rem 0.55rem; }
+.rl-chip:hover { background: var(--accent); color: #fff; }
+.rl-table th.sortable { cursor: pointer; }
+.rl-table th.sortable:hover { color: var(--accent); }

@@ -233,7 +233,7 @@ function detail(d, model) {
 }
 
 // Layer (b): small-multiples of the population behind a mark, sliced several ways.
-function Cohort({ rows }) {
+function Cohort({ rows, onPick }) {
   if (!rows || rows.length < 3) return null;
   const dims = [["tower", "by tower"], ["priority", "by priority"], ["status", "by status"], ["intake", "by channel"]];
   const countBy = (k) => {
@@ -243,16 +243,19 @@ function Cohort({ rows }) {
   };
   return (
     <div className="cohort">
-      {dims.map(([k, h]) => {
-        const rs = countBy(k);
-        if (rs.length < 2) return null;   // no signal if everything is one value
-        return (
-          <div key={k} className="cohort-dim">
-            <span className="cohort-h">{h}</span>
-            <Bars rows={rs} barH={12} w={360} />
-          </div>
-        );
-      })}
+      <div className="cohort-head">cohorts <span className="cohort-hint">— click a bar to filter the records below</span></div>
+      <div className="cohort-grid">
+        {dims.map(([k, h]) => {
+          const rs = countBy(k);
+          if (rs.length < 2) return null;   // no signal if everything is one value
+          return (
+            <div key={k} className="cohort-dim">
+              <span className="cohort-h">{h}</span>
+              <Bars rows={rs} barH={12} w={360} onPick={onPick ? (b) => onPick(k, b.label) : undefined} />
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -326,17 +329,40 @@ const COLUMNS = [
   { k: "reopened", h: "Reopen" },
 ];
 
-function RecordList({ rows, spec, loading, onPick }) {
+const csvCell = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+function download(name, text, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement("a"); a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function RecordList({ rows, total, spec, loading, onPick, xf, onRemoveFilter }) {
   const [numOnly, setNumOnly] = useState(false);
+  const [sort, setSort] = useState(null);   // { k, dir }
   const hiCount = spec.hi ? rows.filter(spec.hi).length : null;
-  const shown = numOnly && spec.hi ? rows.filter(spec.hi) : rows;
+  let shown = numOnly && spec.hi ? rows.filter(spec.hi) : rows;
+  if (sort) {
+    const { k, dir } = sort;
+    shown = [...shown].sort((a, b) => {
+      const x = a[k], y = b[k];
+      if (x == null) return 1; if (y == null) return -1;
+      return (x > y ? 1 : x < y ? -1 : 0) * dir;
+    });
+  }
+  const narrowed = numOnly || (xf && xf.length > 0);
+  const cellVal = (c, r) => (c.link ? r.key : c.fmt ? c.fmt(r[c.k]) : r[c.k]);
+  const csv = () => download(`records-${shown.length}.csv`,
+    COLUMNS.map((c) => c.h).join(",") + "\n" + shown.map((r) => COLUMNS.map((c) => csvCell(cellVal(c, r))).join(",")).join("\n"),
+    "text/csv;charset=utf-8");
+  const copyKeys = () => navigator.clipboard && navigator.clipboard.writeText(shown.map((r) => r.key).join(", "));
+  const sortBy = (k) => setSort((s) => (s && s.k === k ? { k, dir: -s.dir } : { k, dir: 1 }));
   return (
     <div className="rl">
       <div className="rl-head">
-        <span><strong className="tnum">{rows.length}</strong> record{rows.length === 1 ? "" : "s"}</span>
-        {spec.reconcile != null && (
-          <span className={"rl-recon " + (rows.length === spec.reconcile ? "ok" : "warn")}>
-            {rows.length === spec.reconcile ? `matches ${spec.reconcile} ✓` : `≠ expected ${spec.reconcile}`}
+        <span><strong className="tnum">{shown.length}</strong>{narrowed && total != null ? ` of ${total}` : ""} record{shown.length === 1 ? "" : "s"}</span>
+        {spec.reconcile != null && !narrowed && (
+          <span className={"rl-recon " + (total === spec.reconcile ? "ok" : "warn")}>
+            {total === spec.reconcile ? `matches ${spec.reconcile} ✓` : `≠ expected ${spec.reconcile}`}
           </span>
         )}
         {spec.hi && (
@@ -344,11 +370,24 @@ function RecordList({ rows, spec, loading, onPick }) {
             {numOnly ? "show all" : `only ${spec.hiLab} (${hiCount})`}
           </button>
         )}
+        <span className="rl-actions">
+          <button className="rl-toggle" onClick={copyKeys} title="Copy the issue keys">copy keys</button>
+          <button className="rl-toggle" onClick={csv} title="Download the current view as CSV">CSV ⬇</button>
+        </span>
       </div>
+      {xf && xf.length > 0 && (
+        <div className="rl-chips">
+          {xf.map((f, i) => <button key={i} className="rl-chip" onClick={() => onRemoveFilter(i)}>{f.dim}: {f.val} ✕</button>)}
+        </div>
+      )}
       {loading ? <div className="state">loading records …</div> : (
         <div className="rl-scroll">
           <table className="rl-table">
-            <thead><tr>{COLUMNS.map((c) => <th key={c.k} className={c.num ? "num" : ""}>{c.h}</th>)}</tr></thead>
+            <thead><tr>{COLUMNS.map((c) => (
+              <th key={c.k} className={(c.num ? "num " : "") + "sortable"} onClick={() => sortBy(c.k)}>
+                {c.h}{sort && sort.k === c.k ? (sort.dir < 0 ? " ↓" : " ↑") : ""}
+              </th>
+            ))}</tr></thead>
             <tbody>
               {shown.map((r) => (
                 <tr key={r.key} className={"clickable" + (spec.hi && spec.hi(r) ? " hi" : "")} onClick={() => onPick(r)}>
@@ -403,7 +442,8 @@ function RecordDetail({ record, onBack }) {
 
 export function Drawer({ drill, model, records, onClose }) {
   const [sel, setSel] = useState(null);
-  useEffect(() => { setSel(null); }, [drill]);
+  const [xf, setXf] = useState([]);   // cross-filters set by clicking a cohort bar
+  useEffect(() => { setSel(null); setXf([]); }, [drill]);
   useEffect(() => {
     if (!drill) return;
     const onKey = (e) => e.key === "Escape" && (sel ? setSel(null) : onClose());
@@ -413,7 +453,9 @@ export function Drawer({ drill, model, records, onClose }) {
   if (!drill) return null;
   const { title, body, jql: clause } = detail(drill, model);
   const spec = recordSpec(drill, model);
-  const rows = spec && records ? filterRecords(records, spec, model) : null;
+  const baseRows = spec && records ? filterRecords(records, spec, model) : null;
+  const shownRows = baseRows ? baseRows.filter((r) => xf.every((f) => (r[f.dim] ?? "—") === f.val)) : null;
+  const addFilter = (dim, val) => setXf((p) => (p.some((f) => f.dim === dim && f.val === val) ? p : [...p, { dim, val }]));
   return (
     <div className="drawer-overlay" onClick={onClose}>
       <aside className={"drawer" + (spec ? " drawer-wide" : "")} onClick={(e) => e.stopPropagation()}
@@ -427,8 +469,10 @@ export function Drawer({ drill, model, records, onClose }) {
             ? <RecordDetail record={sel} onBack={() => setSel(null)} />
             : <>
                 {body}
-                {spec && rows && <Cohort rows={rows} />}
-                {spec && <RecordList rows={rows || []} spec={spec} loading={!records} onPick={setSel} />}
+                {spec && baseRows && <Cohort rows={baseRows} onPick={addFilter} />}
+                {spec && <RecordList rows={shownRows || []} total={baseRows ? baseRows.length : null}
+                  spec={spec} loading={!records} onPick={setSel}
+                  xf={xf} onRemoveFilter={(i) => setXf((p) => p.filter((_, j) => j !== i))} />}
               </>}
         </div>
         {!sel && clause && (
