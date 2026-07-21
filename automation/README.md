@@ -56,3 +56,33 @@ Referenced by these specs, live on `singhaditya21.atlassian.net` — full list i
 | Reopened | `customfield_10052` |
 | Reported At | `customfield_10057` |
 | Resolved At | `customfield_10060` |
+
+
+## Update 2026-07-20 — the API is reachable after all
+
+The public `/rest/api/3/automation/rules` returns 404, but the Automation UI drives an
+**internal** API that the token *can* reach:
+
+```
+POST /gateway/api/automation/internal-api/jira/{cloudId}/pro/rest/{projectId}/rules   # list  -> 200
+POST /gateway/api/automation/internal-api/jira/{cloudId}/pro/rest/{projectId}/rule    # create -> exists (400 on bad body)
+```
+
+The create envelope is known (CLAIMS #77):
+
+```json
+{ "ruleConfigBean": {
+    "name": "...", "state": "ENABLED|DISABLED",
+    "authorAccountId": "<accountId>",
+    "trigger": { "component": "TRIGGER", "type": "<type>", "value": null, "children": [] },
+    "components": [ /* conditions and actions */ ] } }
+```
+
+**What is still missing:** the exact `type` strings and `value` schemas for each trigger,
+condition and action. Those were **not** reverse-engineered and are **not** guessed here
+(CLAIMS #78). The reliable way to get them is to build ONE rule by hand in the UI, then
+`GET` it back over the internal API — the same technique that corrected the "validator is
+UI-only" mistake (CLAIMS #8). Once one real rule is captured, the six recipe files below can
+be turned into real create payloads and posted.
+
+The `rule-N-*.json` files remain **specifications**, not verified exports.
