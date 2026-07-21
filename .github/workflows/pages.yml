@@ -50,6 +50,14 @@ jobs:
           JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
         run: python3 -m app.export_pages   # stdlib only, no pip install needed
 
+      - name: Alert on off-target KPIs
+        # Reads the just-baked scoreboard (no Jira call, no secret) and writes every KPI
+        # breaching target to this run's job summary — the tower flags itself off-target
+        # from CI, so a scheduled run surfaces it without anyone opening the dashboard.
+        # Warn-only: a GAP is the expected story on this demo, so it never reds the build.
+        # Add --fail-on-breach for a real deployment that wants a red build when off-target.
+        run: python3 -m app.alerts --data-dir webapp/public/data --days 90
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
