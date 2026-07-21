@@ -35,7 +35,12 @@ jobs:
           JIRA_SITE: ${{ secrets.JIRA_SITE }}
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
           JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+        # FAIL-SAFE: --dry-run is applied UNLESS dry_run is explicitly false (boolean or the
+        # string "false"). GitHub's `==` coerces mismatched types to numbers, so `"true"==true`
+        # is false — a naive `== true` check would silently turn a "dry run" into a real
+        # mutation. This form defaults to dry-run on anything ambiguous, so a misread input
+        # never writes to Jira by accident.
         run: |
           python3 -m jira_config.link_problems \
-            ${{ inputs.dry_run == true && '--dry-run' || '' }} \
+            ${{ (inputs.dry_run == false || inputs.dry_run == 'false') && '' || '--dry-run' }} \
             --per-problem ${{ inputs.per_problem }}

@@ -81,10 +81,16 @@ jobs:
 
       - name: Build the React app
         working-directory: webapp
+        # NEAR-REAL-TIME SWITCH — no YAML edit needed. Set a repo Variable named
+        # VITE_API_BASE (Settings → Secrets and variables → Actions → Variables) to your
+        # deployed backend URL and the build flips to live "api" mode automatically; leave it
+        # unset and the build stays static (the safe default). See webapp/DEPLOY-BACKEND.md.
         env:
           VITE_BASE: /JIRADemo/
-          VITE_DATA_MODE: static
+          VITE_DATA_MODE: ${{ vars.VITE_API_BASE != '' && 'api' || 'static' }}
+          VITE_API_BASE: ${{ vars.VITE_API_BASE }}
         run: |
+          echo "build mode: ${VITE_DATA_MODE}${VITE_API_BASE:+ -> $VITE_API_BASE}"
           bun install --frozen-lockfile   # uses the committed webapp/bun.lock (reproducible)
           bun run build
 

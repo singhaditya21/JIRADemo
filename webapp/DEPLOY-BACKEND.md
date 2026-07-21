@@ -57,28 +57,22 @@ Most PaaS inject `$PORT`; the server honours it. Verify with
 
 ---
 
-## 2. Point the Pages app at it
+## 2. Point the Pages app at it — one repo variable, no code edit
 
-Rebuild the Pages app in **api mode** with the backend URL. Edit the build step in
-[`.github/workflows/pages.yml`](../.github/workflows/pages.yml):
+The Pages workflow flips itself to live "api" mode when a repo **Variable** is present:
 
-```yaml
-      - name: Build the React app
-        working-directory: webapp
-        env:
-          VITE_BASE: /JIRADemo/
-          VITE_DATA_MODE: api                 # was: static
-          VITE_API_BASE: https://<your-backend>   # add this
-        run: |
-          bun install --frozen-lockfile
-          bun run build
-```
+1. GitHub → **Settings → Secrets and variables → Actions → Variables → New repository variable**.
+2. Name `VITE_API_BASE`, value your backend URL, e.g. `https://control-tower-api.onrender.com`.
+3. Re-run the **Deploy control tower to GitHub Pages** workflow (Actions tab → Run workflow),
+   or just push anything.
 
-Push, let the Action redeploy, and the dashboard now fetches `VITE_API_BASE/api/tower` and
-`/api/records` on every load — live from Jira through your backend.
+The build logs `build mode: api -> https://…` and the dashboard now fetches
+`VITE_API_BASE/api/tower` and `/api/records` live on every load. Delete the variable to go
+back to static (the safe default) — no YAML change either way. The daily bake keeps running
+regardless; in api mode it's just a warm fallback you aren't reading.
 
-To go back to static, revert those two env values. (You can keep the daily bake step either
-way; in api mode it just becomes a warm fallback you are not reading.)
+> The switch is driven by `${{ vars.VITE_API_BASE }}` in
+> [`.github/workflows/pages.yml`](../.github/workflows/pages.yml) — empty ⇒ static, set ⇒ api.
 
 ---
 
