@@ -69,18 +69,30 @@ function lensPanels(lens, project, model, open, records) {
 }
 
 // Where the data comes from:
-//   - "static" (GitHub Pages): fetch the JSON baked at deploy time by app.export_pages.
-//   - "api" (local dev):       fetch the live app.server backend that holds the token.
+//   - "static" (GitHub Pages):  fetch the JSON baked at deploy time by app.export_pages.
+//   - "api"    (dev / live):    fetch app.server, which holds the token and computes live.
 // Production defaults to static (Pages has no backend); dev defaults to api. Override with
 // VITE_DATA_MODE. In static mode the page also re-polls so it picks up each CI redeploy.
+//
+// NEAR-REAL-TIME: build the Pages app with VITE_DATA_MODE=api and VITE_API_BASE=<backend url>
+// to read live from a hosted app.server instead of the baked files. VITE_API_BASE is empty in
+// dev (Vite proxies /api to localhost); set it to the deployed backend's origin for Pages.
+// See webapp/DEPLOY-BACKEND.md.
 const DATA_MODE = import.meta.env.VITE_DATA_MODE || (import.meta.env.PROD ? "static" : "api");
+const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
 const BASE = import.meta.env.BASE_URL || "/";
 const REFRESH_MS = 5 * 60 * 1000; // re-check for a fresher deploy every 5 min (static mode)
 
 function dataUrl(project, days) {
   return DATA_MODE === "static"
     ? `${BASE}data/${project}-${days}.json?_=${Date.now()}` // cache-bust so a redeploy shows
-    : `/api/tower?project=${project}&days=${days}`;
+    : `${API_BASE}/api/tower?project=${project}&days=${days}`;
+}
+
+function recordsUrl(project) {
+  return DATA_MODE === "static"
+    ? `${BASE}data/${project}-records.json`
+    : `${API_BASE}/api/records?project=${project}`;
 }
 
 function useTheme() {
@@ -148,7 +160,7 @@ export default function App() {
   // and drills both use it); cached per project.
   useEffect(() => {
     if (!model || records[project]) return;
-    fetch(`${BASE}data/${project}-records.json`)
+    fetch(recordsUrl(project))
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => j?.records && setRecords((prev) => ({ ...prev, [project]: j.records })))
       .catch(() => {});

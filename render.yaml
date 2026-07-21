@@ -1,0 +1,25 @@
+# Render.com blueprint for the near-real-time backend (optional — see webapp/DEPLOY-BACKEND.md).
+# Render reads this on "New > Blueprint" from the repo and provisions the service. The three
+# Jira secrets are marked sync:false so Render prompts for them in its dashboard rather than
+# storing them in this file — the token is never committed. Railway/Fly work the same way with
+# their own config; this file is just the Render convenience.
+services:
+  - type: web
+    name: control-tower-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      # Lock CORS to your Pages origin once you know it (recommended); "*" is fine to start.
+      - key: CORS_ALLOW_ORIGIN
+        value: "*"
+      # Set these in the Render dashboard — never commit the token.
+      - key: JIRA_SITE
+        sync: false
+      - key: JIRA_EMAIL
+        sync: false
+      - key: JIRA_TOKEN
+        sync: false

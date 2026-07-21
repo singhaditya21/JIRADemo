@@ -1,0 +1,17 @@
+# The backend image only needs app/ and shared/ (see Dockerfile). Keep everything else out
+# so the build context stays tiny and no secrets/build artefacts leak into a layer.
+webapp/
+out/
+fixtures/
+jira_config/
+automation/
+tools/
+*.md
+*.pptx
+.github/
+.git/
+**/__pycache__/
+**/.build_state.json
+**/.jsm_state.json
+.env
+.envrc
