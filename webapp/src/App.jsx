@@ -3,7 +3,7 @@ import { KpiStrip, PairingPanel, Analysts, KBGap, Towers, Intake, Ageing,
   SlaOutcomes, BacklogFlow, ChannelQuality, AgeingByStatus,
   QueueByStatus, EscalationReasons, InsightsFeed, IntegrityStrip, ImpactUrgency,
   MajorIncident, TierFlow, PracticeMix, IncidentManagement, ChangeManagement,
-  ProblemManagement, RequestFulfilment, SlaByType } from "./panels.jsx";
+  ProblemManagement, RequestFulfilment, SlaByType, CustomerSatisfaction } from "./panels.jsx";
 import { Drawer } from "./drill.jsx";
 
 const PROJECTS = ["OPS", "ITSM"];
@@ -25,7 +25,7 @@ function lensPanels(lens, project, model, open, records) {
     <InsightsFeed key="ins" {...P} />,
     <QueueByStatus key="q" {...P} tier="L1" />,
     <SlaOutcomes key="sla" {...P} lens="L1" />,
-    ...(itsm ? [<IncidentManagement key="im" {...R} />, <RequestFulfilment key="rf" {...R} />] : []),
+    ...(itsm ? [<IncidentManagement key="im" {...R} />, <RequestFulfilment key="rf" {...R} />, <CustomerSatisfaction key="csat" {...R} />] : []),
     <PairingPanel key="pair" {...P} />,
     <Analysts key="an" {...P} />,
     <ImpactUrgency key="iu" {...R} />,
@@ -51,7 +51,8 @@ function lensPanels(lens, project, model, open, records) {
     ...(itsm
       ? [<PracticeMix key="pmx" {...R} />, <IncidentManagement key="im" {...R} />,
          <ChangeManagement key="cm" {...R} />, <ProblemManagement key="pm" {...R} />,
-         <RequestFulfilment key="rf" {...R} />, <SlaByType key="sbt" {...R} />]
+         <RequestFulfilment key="rf" {...R} />, <CustomerSatisfaction key="csat" {...R} />,
+         <SlaByType key="sbt" {...R} />]
       : [<TierFlow key="tf" {...R} />, <ImpactUrgency key="iu" {...R} />, <MajorIncident key="mi" {...R} />]),
     <PairingPanel key="pair" {...P} />,
     <Analysts key="an" {...P} />,

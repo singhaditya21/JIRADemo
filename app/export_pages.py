@@ -30,6 +30,7 @@ all of them consume `app.control_tower.build_model`.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -62,6 +63,49 @@ def _jsonable(model):
     return json.loads(json.dumps(model, default=str))  # datetimes -> str, once
 
 
+# --- Modelled CSAT proxy -----------------------------------------------------
+# This instance has NO satisfaction survey — there is no CSAT field on any ticket.
+# Rather than fabricate a Jira field and pass invented numbers off as real customer
+# responses, the proxy is computed HERE, transparently, and labelled a model (never a
+# survey) everywhere it surfaces. It answers a narrow, honest question: "if satisfaction
+# tracked service outcomes, what would it look like?" — nothing more.
+#
+# It is deliberately NOT a pure re-encoding of the SLA verdict (which would make the panel
+# redundant with the SLA panel). A base is set from the outcomes that actually move
+# satisfaction (resolution SLA, reopening, response speed), then a deterministic per-key
+# jitter adds the independent spread a real survey has — so a met-SLA ticket can still score
+# a 3 and a breached one a 4, and the distribution is not two spikes. Deterministic (hash of
+# the issue key, no RNG) so every bake reproduces the same scores.
+def _csat_rating(issue):
+    """Modelled 1–5 CSAT for a resolved, customer-facing ticket, or None.
+
+    Only Incidents and Service Requests that are actually resolved get a score — you
+    cannot survey satisfaction on a Problem investigation, a Change, or still-open work.
+    """
+    if issue.issue_type not in ("Incident", "Service Request"):
+        return None
+    if not issue.is_done or issue.is_problem:
+        return None
+
+    score = 4.4                                        # a resolved ticket starts satisfied
+    if issue.resolution_sla == "Breached":
+        score -= 1.7                                   # missing the promised time hurts most
+    if issue.response_sla == "Breached":
+        score -= 0.5                                   # a slow first response stings too
+    elif issue.response_sla == "Met":
+        score += 0.15
+    if issue.is_reopened:
+        score -= 1.3                                   # "you said it was fixed and it wasn't"
+    if issue.priority in ("Highest", "P1", "High", "P2"):
+        score -= 0.2                                   # higher stakes, less forgiving
+
+    # Independent per-ticket spread (±0.85) so CSAT is not just SLA wearing a hat.
+    h = int(hashlib.sha1((issue.key or "").encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
+    score += (h - 0.5) * 1.7
+
+    return max(1, min(5, round(score)))
+
+
 def _ts(dt):
     return dt.timestamp() if dt is not None else None
 
@@ -82,6 +126,7 @@ def _record(issue, alias):
     r["reported_at"] = issue.reported_at.isoformat() if issue.reported_at else None
     r["reported_ts"] = _ts(issue.reported_at)
     r["resolved_at"] = issue.resolved_at.isoformat() if issue.resolved_at else None
+    r["csat"] = _csat_rating(issue)                    # modelled proxy (see _csat_rating)
     cl = issue.changelog or ()
     r["changelog_hops"] = len(cl)
     r["timeline"] = [{"at": c.at.isoformat() if c.at else None,

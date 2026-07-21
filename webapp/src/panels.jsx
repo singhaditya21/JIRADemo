@@ -628,6 +628,61 @@ export function RequestFulfilment({ model, records, open }) {
   );
 }
 
+// Customer satisfaction — a MODELLED proxy, not a survey (this instance has no CSAT field).
+// The panel says so plainly. Its value is the "honesty cut" at the bottom: the tickets that
+// scored well despite a breach, or poorly despite a met SLA — the signal a real CSAT adds
+// over pure SLA. Every score is `r.csat`, computed transparently in app/export_pages.
+export function CustomerSatisfaction({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const scored = rows.filter((r) => r.csat != null);
+  const n = scored.length;
+  const sum = scored.reduce((a, r) => a + r.csat, 0);
+  const avg = n ? sum / n : null;
+  const satisfied = scored.filter((r) => r.csat >= 4).length;   // 4–5 = satisfied (CSAT top-2-box)
+  const dissatisfied = scored.filter((r) => r.csat <= 2).length; // 1–2 = dissatisfied
+  const dist = [5, 4, 3, 2, 1].map((s) => ({
+    label: `${s}★`, value: scored.filter((r) => r.csat === s).length,
+    color: s >= 4 ? "var(--ok)" : s === 3 ? "var(--warn)" : "var(--crit)",
+  }));
+  // the independent-signal cells: CSAT disagreeing with the SLA verdict
+  const happyBreach = scored.filter((r) => r.csat >= 4 && r.resolution_sla === "Breached").length;
+  const unhappyMet = scored.filter((r) => r.csat <= 2 && r.resolution_sla === "Met").length;
+  const isScored = (r) => r.csat != null;
+  return (
+    <div className="panel span-2">
+      <h2>Customer satisfaction (CSAT)</h2>
+      <p className="why">
+        <strong>Modelled proxy — not a survey.</strong> This instance has no satisfaction responses, so the score is derived
+        in the bake from resolution SLA, reopening and response speed, plus per-ticket spread — it shows the <em>shape</em> a
+        CSAT programme would surface, never real customers. Top-2-box (4–5★) is the headline. {records ? "" : "Loading…"} <span className="hint">Click a rating.</span>
+      </p>
+      {records && (
+        <>
+          <div className="miniboard">
+            <div><span className="k">avg score</span><span className="v tnum">{avg == null ? "—" : avg.toFixed(2)}</span></div>
+            <div><span className="k">satisfied 4–5★</span><span className="v tnum" style={{ color: "var(--ok)" }}>{n ? Math.round(satisfied / n * 100) : "—"}%</span></div>
+            <div><span className="k">dissatisfied 1–2★</span><span className="v tnum" style={{ color: dissatisfied ? "var(--crit)" : "var(--ok)" }}>{n ? Math.round(dissatisfied / n * 100) : "—"}%</span></div>
+            <div><span className="k">responses</span><span className="v tnum">{n}</span></div>
+          </div>
+          <div style={{ marginTop: "0.7rem" }}>
+            <Bars rows={dist} barH={18}
+              onPick={(b) => { const s = Number(b.label[0]); open({ type: "records", label: `CSAT ${b.label}`, pred: (r) => isScored(r) && r.csat === s, reconcile: b.value }); }} />
+          </div>
+          <p className="why" style={{ marginTop: "0.6rem" }}>
+            Where CSAT and SLA <em>disagree</em> — the signal a survey adds over the clock:
+          </p>
+          <div className="miniboard">
+            <div className="clickable" onClick={() => open({ type: "records", label: "Satisfied despite SLA breach", pred: (r) => isScored(r) && r.csat >= 4 && r.resolution_sla === "Breached", reconcile: happyBreach })}>
+              <span className="k">satisfied, SLA breached</span><span className="v tnum">{happyBreach}</span></div>
+            <div className="clickable" onClick={() => open({ type: "records", label: "Dissatisfied despite SLA met", pred: (r) => isScored(r) && r.csat <= 2 && r.resolution_sla === "Met", reconcile: unhappyMet })}>
+              <span className="k">dissatisfied, SLA met</span><span className="v tnum">{unhappyMet}</span></div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function SlaByType({ model, records, open }) {
   const rows = inWindow(records, model);
   const types = ["Incident", "Service Request", "Change", "Problem"];
