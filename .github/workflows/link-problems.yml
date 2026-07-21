@@ -35,12 +35,17 @@ jobs:
           JIRA_SITE: ${{ secrets.JIRA_SITE }}
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
           JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
-        # FAIL-SAFE: --dry-run is applied UNLESS dry_run is explicitly false (boolean or the
-        # string "false"). GitHub's `==` coerces mismatched types to numbers, so `"true"==true`
-        # is false — a naive `== true` check would silently turn a "dry run" into a real
-        # mutation. This form defaults to dry-run on anything ambiguous, so a misread input
-        # never writes to Jira by accident.
+        # FAIL-SAFE decision made in BASH, not a GitHub `${{ }}` ternary. GitHub's expression
+        # `==` coerces booleans and strings to numbers, so `inputs.dry_run == false` can be
+        # false even for a false input — which silently defaulted a real run back to a dry run.
+        # String INTERPOLATION is deterministic though: `${{ inputs.dry_run }}` renders as the
+        # literal "true"/"false", so we branch on that. --dry-run stays on unless the input is
+        # an explicit falsey string, so a misread never writes to Jira by accident.
         run: |
-          python3 -m jira_config.link_problems \
-            ${{ (inputs.dry_run == false || inputs.dry_run == 'false') && '' || '--dry-run' }} \
-            --per-problem ${{ inputs.per_problem }}
+          echo "dry_run input rendered as: '${{ inputs.dry_run }}'"
+          FLAG="--dry-run"
+          case "${{ inputs.dry_run }}" in
+            false|False|FALSE|no|No|0|off) FLAG="" ;;
+          esac
+          echo "linker mode: ${FLAG:-APPLY (writing real links)}"
+          python3 -m jira_config.link_problems $FLAG --per-problem "${{ inputs.per_problem }}"
