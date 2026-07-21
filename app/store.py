@@ -88,7 +88,7 @@ STORE_FIELD_NAMES = DATE_READS + SELECT_READS + TEXT_READS
 # `Troubleshooting Performed` are deliberately NOT here - they are long text, they
 # would multiply the page count, and no panel reads them.
 SYSTEM_READS = ("issuetype", "status", "priority", "created", "resolutiondate",
-                "summary")
+                "summary", "issuelinks")
 
 
 def jql_for(project, extra=""):
@@ -157,6 +157,31 @@ def _opt(value):
     return value
 
 
+def _parse_links(raw):
+    """`fields.issuelinks` -> a flat list of {key, rel, dir, issue_type, status}.
+
+    Each Jira link names the OTHER issue as inwardIssue or outwardIssue plus a type with
+    directional labels ("causes"/"is caused by"). We flatten to the neighbour's key, the
+    directional phrase, and the neighbour's type/status (Jira returns a small fields subset
+    on the linked issue) so the record layer can render "this problem causes N incidents".
+    """
+    out = []
+    for l in raw or []:
+        t = l.get("type") or {}
+        if l.get("outwardIssue"):
+            oi, direction, rel = l["outwardIssue"], "outward", t.get("outward")
+        elif l.get("inwardIssue"):
+            oi, direction, rel = l["inwardIssue"], "inward", t.get("inward")
+        else:
+            continue
+        of = oi.get("fields") or {}
+        out.append({"key": oi.get("key"), "rel": rel, "dir": direction,
+                    "type": t.get("name"),
+                    "issue_type": (of.get("issuetype") or {}).get("name"),
+                    "status": (of.get("status") or {}).get("name")})
+    return out
+
+
 # ---------------------------------------------------------------------------
 # The record
 # ---------------------------------------------------------------------------
@@ -181,6 +206,8 @@ _ISSUE_ATTRS = [
     # derived: the shared denominators
     "is_done", "is_open", "is_problem", "is_escalated", "is_reopened",
     "counts_as_closed", "counts_as_ftr", "kb_gap",
+    # issue links (Problem/Incident etc.) — record-layer only; analytics ignores them
+    "links",
     # optional
     "changelog", "changelog_truncated",
 ]
@@ -298,6 +325,7 @@ def build_issue(raw, F, now):
         is_escalated=escalated, is_reopened=reopened == "Yes",
         counts_as_closed=closed, counts_as_ftr=closed and tier == "L1",
         kb_gap=escalated and kb == "Yes - none found",
+        links=_parse_links(f.get("issuelinks")),
         changelog=changelog, changelog_truncated=truncated,
     )
 

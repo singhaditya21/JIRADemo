@@ -1,0 +1,41 @@
+name: Link ITSM problems to incidents
+
+# One-click creation of REAL Jira Problem->Incident links (jira_config/link_problems.py),
+# using the Jira token that already lives in this repo's Actions secrets — so nobody handles
+# the token in a terminal. This MUTATES the Jira instance, so it only runs when you trigger
+# it by hand (Actions tab -> this workflow -> "Run workflow"), and it defaults to a DRY RUN:
+# the first click rehearses and creates nothing. To actually create links, set "dry_run" to
+# false. Idempotent — re-running never duplicates a link. After a real run, the next Pages
+# bake surfaces the links in the Problem-management panel's incident footprint.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Rehearse only — create no links (uncheck to write to Jira)"
+        type: boolean
+        default: true
+      per_problem:
+        description: "Base links per problem (each problem gets this..this+4)"
+        default: "4"
+
+permissions:
+  contents: read
+
+jobs:
+  link:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Create Problem→Incident links
+        env:
+          JIRA_SITE: ${{ secrets.JIRA_SITE }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+        run: |
+          python3 -m jira_config.link_problems \
+            ${{ inputs.dry_run == true && '--dry-run' || '' }} \
+            --per-problem ${{ inputs.per_problem }}

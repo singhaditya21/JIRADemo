@@ -127,6 +127,7 @@ def _record(issue, alias):
     r["reported_ts"] = _ts(issue.reported_at)
     r["resolved_at"] = issue.resolved_at.isoformat() if issue.resolved_at else None
     r["csat"] = _csat_rating(issue)                    # modelled proxy (see _csat_rating)
+    r["links"] = issue.links or []                      # issue links (Problem/Incident etc.)
     cl = issue.changelog or ()
     r["changelog_hops"] = len(cl)
     r["timeline"] = [{"at": c.at.isoformat() if c.at else None,

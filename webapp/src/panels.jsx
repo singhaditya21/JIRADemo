@@ -593,12 +593,45 @@ export function ProblemManagement({ model, records, open }) {
   const rc = {};
   for (const r of rows.filter((r) => r.root_cause)) rc[r.root_cause] = (rc[r.root_cause] || 0) + 1;
   const bars = Object.entries(rc).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([label, value]) => ({ label, value }));
+
+  // Incident footprint from REAL Jira links (populated by jira_config.link_problems). A
+  // problem's linked Incidents are its outward "causes" neighbours; resolve type via the
+  // record set so it's robust if Jira omits the linked issuetype.
+  const byKey = new Map((records || []).map((r) => [r.key, r]));
+  const linkedIncidents = (p) => (p.links || [])
+    .map((l) => l.key)
+    .filter((k) => { const nb = byKey.get(k); return nb ? nb.issue_type === "Incident" : true; });
+  const foot = prob.map((p) => ({ p, inc: linkedIncidents(p) })).filter((x) => x.inc.length);
+  const totalLinked = foot.reduce((a, x) => a + x.inc.length, 0);
+  const topFoot = [...foot].sort((a, b) => b.inc.length - a.inc.length).slice(0, 6);
+
   return (
     <div className="panel span-2">
       <h2>Problem management &amp; root cause</h2>
-      <p className="why">{prob.length} problem records. Root-cause distribution across resolved work — the recurring causes a problem practice attacks first (problem→incident links aren't on the record). {records ? "" : "Loading…"} <span className="hint">Click a cause.</span></p>
+      <p className="why">{prob.length} problem records. Root-cause distribution across resolved work — the recurring causes a problem practice attacks first. {records ? "" : "Loading…"} <span className="hint">Click a cause.</span></p>
       {records && <Bars rows={bars} barH={16}
         onPick={(b) => open({ type: "records", label: `Root cause · ${b.label}`, pred: (r) => r.root_cause === b.label, reconcile: b.value, jql: `project = ITSM AND cf[10048] = "${b.label}"` })} />}
+      {records && (
+        <div style={{ marginTop: "0.8rem" }}>
+          <p className="why" style={{ margin: "0 0 0.5rem" }}><strong>Incident footprint</strong> — how many Incidents each Problem explains, from real Jira Problem→Incident links.</p>
+          {totalLinked === 0 ? (
+            <p className="hint" style={{ margin: 0 }}>No problem→incident links yet — run <span className="mono">jira_config.link_problems</span> (or the “Link ITSM problems to incidents” Action) and they appear here on the next bake.</p>
+          ) : (
+            <>
+              <div className="miniboard">
+                <div><span className="k">problems w/ links</span><span className="v tnum">{foot.length}</span></div>
+                <div><span className="k">incidents linked</span><span className="v tnum">{totalLinked}</span></div>
+                <div><span className="k">avg footprint</span><span className="v tnum">{f1(totalLinked / foot.length)}</span></div>
+              </div>
+              <div style={{ marginTop: "0.55rem" }}>
+                <Bars rows={topFoot.map((x) => ({ label: x.p.key, value: x.inc.length }))} barH={16}
+                  onPick={(b) => { const x = foot.find((f) => f.p.key === b.label); const set = new Set(x.inc);
+                    open({ type: "records", label: `Incidents caused by ${b.label}`, pred: (r) => set.has(r.key), reconcile: x.inc.length, windowed: false, jql: `issue in linkedIssues("${b.label}")` }); }} />
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
