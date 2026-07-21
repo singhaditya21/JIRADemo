@@ -1,0 +1,108 @@
+{
+ "id": 1163865,
+ "clientKey": "67da50b8-3112-40d2-9443-a11064176c60",
+ "name": "Reopen handling",
+ "state": "DISABLED",
+ "description": "",
+ "authorAccountId": "70121:c0828f36-733c-4391-9b57-f5f2784f085d",
+ "actor": {
+  "type": "ACCOUNT_ID",
+  "value": "557058:f58131cb-b67d-43c7-b30d-6b58d40bd077"
+ },
+ "created": 1784616943744,
+ "updated": 1784616943744,
+ "trigger": {
+  "id": "df14bfa2-5541-476a-ba2f-45af3f65e413",
+  "parentId": null,
+  "conditionParentId": null,
+  "component": "TRIGGER",
+  "type": "jira.issue.event.trigger:transitioned",
+  "value": {
+   "eventFilters": [
+    "ari:cloud:jira:520438e0-67f8-4ad6-a730-1e078094903e:project/10034"
+   ],
+   "fromStatus": [],
+   "toStatus": [],
+   "eventKey": "jira:issue_updated",
+   "issueEvent": "issue_generic"
+  },
+  "conditions": [],
+  "children": [],
+  "schemaVersion": 1,
+  "connectionId": null,
+  "checksum": null
+ },
+ "components": [
+  {
+   "id": "4aa18c70-7b65-4c83-95de-bb77c1427646",
+   "parentId": null,
+   "conditionParentId": null,
+   "component": "ACTION",
+   "type": "jira.issue.edit",
+   "value": {
+    "operations": [
+     {
+      "field": {
+       "type": "NAME",
+       "value": "Reopened"
+      },
+      "fieldType": "com.atlassian.jira.plugin.system.customfieldtypes:select",
+      "type": "SET",
+      "value": {
+       "type": "NAME",
+       "value": "Yes"
+      }
+     }
+    ],
+    "advancedFields": null,
+    "sendNotifications": true
+   },
+   "conditions": [],
+   "children": [],
+   "schemaVersion": 12,
+   "connectionId": null,
+   "checksum": null
+  }
+ ],
+ "canOtherRuleTrigger": false,
+ "notifyOnError": "FIRSTERROR",
+ "projects": [],
+ "labels": [],
+ "tags": [
+  {
+   "id": 2752194,
+   "ruleIdUuid": "019f8375-8080-72c3-8723-2b555716efe1",
+   "tagType": "SHADOW_ORCHESTRATION",
+   "tagValue": "true"
+  },
+  {
+   "id": 2752193,
+   "ruleIdUuid": "019f8375-8080-72c3-8723-2b555716efe1",
+   "tagType": "ORCHESTRATION_VERSION",
+   "tagValue": "1"
+  }
+ ],
+ "ruleScope": {
+  "resources": [
+   "ari:cloud:jira:520438e0-67f8-4ad6-a730-1e078094903e:project/10034"
+  ]
+ },
+ "ruleHome": {
+  "ruleLifecycleHome": {
+   "locationARI": "ari:cloud:jira:520438e0-67f8-4ad6-a730-1e078094903e:project/10034"
+  },
+  "ruleBillingHome": {
+   "locationARI": "ari:cloud:jira-software::site/520438e0-67f8-4ad6-a730-1e078094903e"
+  }
+ },
+ "writeAccessType": "OWNER_ONLY",
+ "collaborators": [],
+ "billingType": "NORMAL",
+ "idUuid": "019f8375-8080-72c3-8723-2b555716efe1",
+ "partitionId": "67da50b8-3112-40d2-9443-a11064176c60",
+ "checksum": {
+  "version": 3,
+  "value": "28c20ca17f94c10540a018b2fa59de9ca54e16790a554657fee1195345209826"
+ },
+ "currentVersionId": null
+}

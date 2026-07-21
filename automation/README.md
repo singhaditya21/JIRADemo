@@ -113,3 +113,30 @@ Verified without guessing (CLAIMS #87-90):
    then enabled deliberately at go-live.
 
 The `rule-N-*.json` files remain **specifications**, not verified exports, until step 1 is done.
+
+## Update 2026-07-20 (final) — the rules are being built
+
+The blocker is solved. Two facts unlocked it, both found the hard way:
+
+1. **A flow only persists once it has a name.** Earlier scripted saves silently did
+   nothing because the required name field was never filled — the rule count stayed 0.
+2. **The create payload needs the FULL rule wrapper** (`ruleScope`, `ruleHome`, `actor`,
+   `writeAccessType`, …), not the minimal envelope. A minimal body returns the unhelpful
+   "systems are unavailable". So we template from a real captured rule.
+
+`schema/example-transition-edit.rule.json` is a real rule read back over the internal API.
+It carries the canonical value schemas for the `jira.issue.event.trigger:transitioned`
+trigger and the `jira.issue.edit` action.
+
+`build_rules.py` templates from it and creates, **disabled**:
+
+- **Reopen handling** — set Reopened=Yes, Support Tier=L1
+- **SLA pause on Pending** — set Resolution SLA=Paused
+- **Route on escalation** — set Support Tier=L2
+
+Still to build (each needs one more UI capture → GET → a line in `build_rules.py`):
+derive-priority (field-changed trigger + if-else), major-incident alert (send-notification),
+breach warning (scheduled trigger + comment), auto-close (scheduled trigger + transition).
+
+All rules are created **DISABLED**. Enable them deliberately at go-live — an enabled
+"derive priority" rule would overwrite a manually-set priority.
