@@ -411,3 +411,15 @@ record) rather than faked.
 | 138 | The drill supports cross-filtering — cohort → record list | ✅ VERIFIED 2026-07-21 | Cohort small-multiples (layer b) are now clickable: clicking a bar adds a filter to the record list below, shown as a removable chip. In-browser: the FTR drill's "by tower" bar narrowed the list to "105 of 347 records" with a "tower: End User Computing ✕" chip; removing it restored 347. The reconciliation footer suppresses its ✓ while narrowed (the subset is not meant to equal the denominator). Completes ROADMAP Part III's cross-filter. |
 | 139 | The record list sorts and exports | ✅ VERIFIED 2026-07-21 | Every column header sorts (asc/desc toggle — "Age ↑" verified). Two export actions: "copy keys" (issue keys to clipboard, for a Jira `key in (…)` query) and "CSV ⬇" (the current filtered/sorted/column view as CSV). Part VII export. |
 | 140 | Any view is a shareable, bookmarkable URL | ✅ VERIFIED 2026-07-21 | Board state lives in the URL hash `#/PROJECT/LENS/DAYS`, parsed on load and kept in sync as controls change. In-browser: opening `#/ITSM/L2/90` booted straight into ITSM + L2; switching to OPS/Overview rewrote the hash to `#/OPS/overview/90`. Enables Part VII saved-views/sharing without a backend. Zero console errors; token absent from bundle. |
+
+
+## Roadmap execution batch 5 — "build this": gate confirmation + honest change depth — 2026-07-21
+
+The three "genuinely remaining" items were probed empirically before building. Two of the
+three turned out to be already-done or not-derivable-from-this-seed; the buildable, honest
+subset was shipped rather than a fabricated metric.
+
+| # | Claim | Status | Evidence |
+|---|---|---|---|
+| 141 | The escalation gate is already enforced (the earlier "not enforced" audit note was wrong) | ✅ VERIFIED 2026-07-21 | OPS transition **"Escalate to L2"** carries one validator `system:validate-field-value`, ruleType `fieldRequired`, `fieldsRequired = customfield_10046,customfield_10055,customfield_10047` (Escalation reason / Escalation notes / KB checked) with the design's error message — read back from the live workflow. **"Escalate - major incident"** deliberately carries 0 field validators (MIM speed path, role-gated instead). So "enforce the gate" needed no build; the record is corrected here. |
+| 142 | Change management now shows real lead time + CAB governance coverage (not a fabricated cycle time) | ✅ VERIFIED 2026-07-21 | Probing the changelog showed every Change ticket's status transitions bear the **same bake-time timestamp** — the seed records status *order* honestly but collapses per-transition wall-clock, so a "CAB dwell time" would compute to a misleading ~0.0h. That metric is deliberately NOT shown. What IS real is shipped: **lead time** median 2.4d (raised→resolved, from genuinely-seeded dates) and **CAB-reviewed** 22/29 = 76% (governance coverage: did the change pass through the "Awaiting CAB approval" gate — a sequence fact), plus CAB-pending 4 / declined 2. Statuses sum to 29; CAB-pending 4 = "Awaiting CAB approval" bar 4. Supersedes the CAB-cycle caveat in #136. |

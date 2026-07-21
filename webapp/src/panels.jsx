@@ -493,6 +493,12 @@ const inWindow = (records, model) => (records || []).filter((r) => r.reported_ts
 const meanBy = (rows, f) => { const xs = rows.map(f).filter((x) => x != null); return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null; };
 const ttrHours = (r) => (r.resolved_at && r.reported_at) ? (new Date(r.resolved_at) - new Date(r.reported_at)) / 36e5 : null;
 const dur = (h) => (h == null ? "—" : h < 48 ? `${f1(h)}h` : `${f1(h / 24)}d`);
+const median = (xs) => { if (!xs.length) return null; const s = [...xs].sort((a, b) => a - b); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+// Time a change spent Awaiting CAB approval, reconstructed from its status changelog.
+// Did this change pass through the CAB gate? A sequence fact from the changelog (the seed
+// records status ORDER honestly; per-transition wall-clock is collapsed to bake time, so gate
+// dwell-time is NOT derivable — we deliberately don't claim it). This is governance coverage.
+const wentThroughCab = (r) => (r.timeline || []).some((c) => c.field === "status" && c.to === "Awaiting CAB approval");
 const isReq = (r) => r.issue_type === "Service Request" || r.issue_type === "Service Request with Approvals";
 // Tier of a status for flow analysis — terminal states are "done" so resolving/closing an
 // escalated ticket is not mistaken for a bounce back to L1.
@@ -553,14 +559,30 @@ export function ChangeManagement({ model, records, open }) {
   const byStatus = {};
   for (const r of ch) byStatus[r.status] = (byStatus[r.status] || 0) + 1;
   const bars = Object.entries(byStatus).sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value, color: /cab|approval/i.test(label) ? "var(--warn)" : "var(--accent)" }));
-  const cab = ch.filter((r) => /cab|approval/i.test(r.status)).length;
+  const cabPending = ch.filter((r) => /cab|approval/i.test(r.status)).length;
   const declined = ch.filter((r) => r.status === "Declined").length;
+  const cabReviewed = ch.filter(wentThroughCab).length;          // passed the CAB gate (changelog sequence)
+  const cabPct = ch.length ? cabReviewed / ch.length : null;
+  const leadMedian = median(ch.filter((r) => r.resolved_at).map(ttrHours));
   return (
-    <div className="panel">
+    <div className="panel span-2">
       <h2>Change management</h2>
-      <p className="why">{ch.length} changes · {cab} awaiting CAB approval · {declined} declined. (CAB cycle time needs approval timestamps, not on the record.) {records ? "" : "Loading…"} <span className="hint">Click a status.</span></p>
-      {records && <Bars rows={bars} barH={18}
-        onPick={(b) => open({ type: "records", label: `Change · ${b.label}`, pred: (r) => r.issue_type === "Change" && r.status === b.label, reconcile: b.value, jql: `project = ITSM AND issuetype = Change AND status = "${b.label}"` })} />}
+      <p className="why">{ch.length} changes. <strong>Lead time</strong> is real end-to-end (raised → resolved). <strong>CAB-reviewed</strong> counts changes whose changelog passed through the “Awaiting CAB approval” gate — governance coverage, the ITIL question of whether change went through control. {records ? "" : "Loading…"} <span className="hint">Click a status.</span></p>
+      {records && (
+        <>
+          <div className="miniboard">
+            <div><span className="k">changes</span><span className="v tnum">{ch.length}</span></div>
+            <div><span className="k">lead time (med)</span><span className="v tnum">{dur(leadMedian)}</span></div>
+            <div><span className="k">CAB-reviewed</span><span className="v tnum">{cabReviewed}<span className="k" style={{ marginLeft: 4 }}>{cabPct == null ? "" : ` ${Math.round(cabPct * 100)}%`}</span></span></div>
+            <div><span className="k">CAB pending</span><span className="v tnum" style={{ color: cabPending ? "var(--warn)" : "var(--ok)" }}>{cabPending}</span></div>
+            <div><span className="k">declined</span><span className="v tnum" style={{ color: declined ? "var(--crit)" : "var(--ok)" }}>{declined}</span></div>
+          </div>
+          <div style={{ marginTop: "0.7rem" }}>
+            <Bars rows={bars} barH={18}
+              onPick={(b) => open({ type: "records", label: `Change · ${b.label}`, pred: (r) => r.issue_type === "Change" && r.status === b.label, reconcile: b.value, jql: `project = ITSM AND issuetype = Change AND status = "${b.label}"` })} />
+          </div>
+        </>
+      )}
     </div>
   );
 }
