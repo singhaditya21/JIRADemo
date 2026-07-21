@@ -7,6 +7,7 @@ Design and build approach for an L1/L2 IT support tower ticket management system
 | File | What it is |
 |---|---|
 | [PROBLEM.md](PROBLEM.md) | **Start here.** Why these towers degrade — ten symptoms, five structural root causes, why the problem survives years of effort, and what "solved" means. |
+| [ROADMAP.md](ROADMAP.md) | **The product roadmap** — vision, personas, Now/Next/Later horizons, the record-level right-side drill-down system, exhaustive OPS (48) and ITSM (61) chart catalogs each described, the insights engine, information-design/space rules, and the data foundation. ~29k words, grounded in the live instance. |
 | [PLAN.md](PLAN.md) | Full technical design — field schema, status model, escalation gate and major-incident fast path, SLA targets, priority matrix, permissions, build phases. |
 | [demo.html](demo.html) | The presentation page. Sections tagged `CORE` (~10 min spine) or `DEEP DIVE`. Self-contained; works offline. |
 | `L1-L2-Tower-Demo.pptx` | 18-slide deck — 10-slide core spine plus appendix A-1 to A-8. |
