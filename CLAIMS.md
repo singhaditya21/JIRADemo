@@ -271,3 +271,13 @@ verification below was read-only or `--dry-run`.
 | 93 | Three rules are live on OPS, all disabled | ✅ VERIFIED 2026-07-20 | Reopen handling, SLA pause on Pending, Route on escalation — created by `automation/build_rules.py` (idempotent), all `DISABLED` so they never rewrite the seeded tickets. Rule count 3. |
 | 94 | Building the rules did not touch OPS data | ✅ VERIFIED 2026-07-20 | Disabled rules do not fire. OPS remains 420 / 171 tier-L2 / 171 gate evidence after. |
 | 95 | Four rules remain, blocked only on more component captures | ⚠️ **KNOWN, unblocked** | Derive-priority (field-changed trigger + if-else), major-incident alert (send-notification), breach warning (scheduled + comment), auto-close (scheduled + transition). Each needs one UI capture + GET, then a line in `build_rules.py` — the procedure is proven, not speculative. |
+
+
+## Automation rules — scoped and enabled, 2026-07-20 (final)
+
+| # | Claim | Status | Evidence |
+|---|---|---|---|
+| 96 | Transition-trigger status scoping uses `{"type":"NAME","value":"<status>"}` | ✅ VERIFIED 2026-07-20 | Captured by editing the Reopen rule in the UI (From Resolved → To Triage) and reading it back. Same NAME-based shape as edit-action field values. |
+| 97 | Three rules are live, ENABLED and correctly scoped | ✅ VERIFIED 2026-07-20 | Reopen handling (Resolved→Triage), SLA pause on Pending (→Pending Customer/Vendor), Route on escalation (→Escalated to L2). Read back over the API: all `ENABLED` with the right `toStatus`. Reproducible via `automation/build_rules.py`. |
+| 98 | Enabling did not alter the seeded data | ✅ VERIFIED 2026-07-20 | Enabled rules fire only on *future* transitions, not retroactively. OPS unchanged: 420 / 171 tier-L2 / 171 gate evidence / 15 reopened. Nothing transitions in a static instance, so nothing has fired. |
+| 99 | Four rules remain, each blocked on one UI component capture | ⚠️ **KNOWN, unblocked** | Derive-priority (field-changed trigger + if-else matrix), major-incident alert (send-notification), SLA breach warning (scheduled trigger + comment), auto-close (scheduled trigger + transition). The scheduled two will *mutate* data when they run (auto-close closes stale Resolved tickets; breach warning comments), so they are deliberately left for a decision on whether to run them against the demo snapshot. |

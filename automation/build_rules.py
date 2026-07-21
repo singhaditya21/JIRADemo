@@ -45,19 +45,27 @@ TEMPLATE = Path(__file__).parent / "schema" / "example-transition-edit.rule.json
 
 SELECT = "com.atlassian.jira.plugin.system.customfieldtypes:select"
 
-# Only rules expressible with the captured trigger+action. Each is (name, {trigger overrides},
-# [edit operations]). Conditions and status-scoping are omitted until their schemas are
-# captured - harmless because every rule is created DISABLED.
+# Status references use {"type": "NAME", "value": "<status>"} - captured from a real rule.
+def status(*names):
+    return [{"type": "NAME", "value": n} for n in names]
+
+
+# Rules expressible with the captured transitioned-trigger + edit-action, now with proper
+# status scoping so they fire only on the right transition and are safe to ENABLE.
+# Each: (name, description, fromStatus, toStatus, [edit operations], state).
 RULES = [
     ("Reopen handling",
-     "Set Reopened=Yes and Support Tier=L1 when a resolved ticket is reopened.",
-     [("Reopened", "Yes"), ("Support Tier", "L1")]),
+     "When a resolved ticket is reopened, flag it and route it back to L1.",
+     status("Resolved"), status("Triage"),
+     [("Reopened", "Yes"), ("Support Tier", "L1")], "ENABLED"),
     ("SLA pause on Pending",
-     "Pause the resolution SLA while a ticket waits on customer or vendor.",
-     [("Resolution SLA", "Paused")]),
+     "Pause the resolution SLA while a ticket waits on the customer or a vendor.",
+     [], status("Pending Customer", "Pending Vendor"),
+     [("Resolution SLA", "Paused")], "ENABLED"),
     ("Route on escalation",
-     "Set Support Tier=L2 when a ticket is escalated.",
-     [("Support Tier", "L2")]),
+     "Set Support Tier = L2 when a ticket is escalated to L2.",
+     [], status("Escalated to L2"),
+     [("Support Tier", "L2")], "ENABLED"),
 ]
 
 
@@ -92,16 +100,17 @@ def edit_operations(pairs):
             for name, val in pairs]
 
 
-def build_bean(template, name, description, ops):
+def build_bean(template, name, description, from_status, to_status, ops, state):
     bean = copy.deepcopy(template)
     for k in ("id", "idUuid", "checksum", "currentVersionId", "created", "updated",
               "clientKey", "partitionId"):
         bean.pop(k, None)
     bean["name"] = name
     bean["description"] = description
-    bean["state"] = "DISABLED"
-    bean["trigger"]["value"] = {"eventFilters": [PROJECT_ARI], "fromStatus": [],
-                                "toStatus": [], "eventKey": "jira:issue_updated",
+    bean["state"] = state
+    bean["trigger"]["value"] = {"eventFilters": [PROJECT_ARI],
+                                "fromStatus": from_status, "toStatus": to_status,
+                                "eventKey": "jira:issue_updated",
                                 "issueEvent": "issue_generic"}
     bean["components"] = [{"component": "ACTION", "type": "jira.issue.edit",
                            "value": {"operations": edit_operations(ops),
@@ -123,20 +132,20 @@ def main():
 
     have = existing_names()
     print(f"  {len(have)} rule(s) already on the project")
-    for name, desc, ops in RULES:
+    for name, desc, frm, to, ops, state in RULES:
         if name in have:
             print(f"  = {name}  (exists, id {have[name]['id']}, {have[name]['state']})")
             continue
         if args.dry_run:
-            print(f"  + {name}  (would create DISABLED: "
+            print(f"  + {name}  (would create {state}: "
                   f"{', '.join(f'{f}={v}' for f, v in ops)})")
             continue
-        bean = build_bean(template, name, desc, ops)
+        bean = build_bean(template, name, desc, frm, to, ops, state)
         code, body = http("POST", BASE + "/rule", {"ruleConfigBean": bean})
         if code == 200:
             rid = json.loads(body).get("ruleConfigBean", {}).get("id") \
                 or json.loads(body).get("id")
-            print(f"  + {name}  created DISABLED (id {rid})")
+            print(f"  + {name}  created {state} (id {rid})")
         else:
             print(f"  ! {name}  FAILED {code}: {body[:160]}")
 
