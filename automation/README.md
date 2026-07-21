@@ -86,3 +86,30 @@ UI-only" mistake (CLAIMS #8). Once one real rule is captured, the six recipe fil
 be turned into real create payloads and posted.
 
 The `rule-N-*.json` files remain **specifications**, not verified exports.
+
+
+## Update 2026-07-20 (later) — verified triggers, and the one manual step that unblocks the rest
+
+Verified without guessing (CLAIMS #87-90):
+
+- **Trigger types** (from `ruleTemplates`): `jira.issue.field.changed`,
+  `jira.issue.event.trigger:transitioned`, `jira.jql.scheduled`,
+  `jira.issue.event.trigger:created`, `jira.manual.trigger.issue`.
+- **`jira.issue.comment`** is a confirmed action type.
+- **Component value schemas are NOT obtainable over the API** — no descriptor endpoint
+  exists, and the create endpoint's error channel is too noisy to walk. They live in the
+  UI bundle.
+- The new **Flows builder cannot be driven by the automation tooling** (it never idles).
+
+### The unblock — 2 minutes of human clicking, then fully scripted
+
+1. In the UI, build **one** rule that uses the components the seven need — e.g. trigger
+   *Issue transitioned* → action *Edit issue field* + *Add comment* — and save it.
+2. Then it can be read back over the proven internal endpoint:
+   `GET /gateway/api/automation/internal-api/jira/{cloudId}/pro/rest/10034/rule/{id}`
+   which returns the canonical `ruleConfigBean` with real `value` schemas.
+3. With one real example per component, the six recipe files below become real create
+   payloads and are POSTed **disabled** (so they never rewrite the 420 seeded tickets),
+   then enabled deliberately at go-live.
+
+The `rule-N-*.json` files remain **specifications**, not verified exports, until step 1 is done.

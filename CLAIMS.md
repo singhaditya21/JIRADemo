@@ -251,3 +251,14 @@ verification below was read-only or `--dry-run`.
 | 84 | The control tower runs as a React app on localhost | ✅ VERIFIED 2026-07-20 | `webapp/` (Vite + React, built with bun) renders at `http://localhost:5173`, proxying `/api` to `app/server.py` on 8000. `bun run build` compiles clean (33 modules, 154 KB). Live DOM check: all 7 panels render, no console errors. |
 | 85 | The React figures match the reference implementation | ✅ VERIFIED 2026-07-20 | The scoreboard tiles read 61.8% / 40.7% / 4.3% / 78.9% / 96.6% / 60 — identical to `app/metrics.py` and the static tower, because all three consume `app/analytics.build_model`. |
 | 86 | No Jira token reaches the browser | ✅ VERIFIED 2026-07-20 | `app/server.py` holds the token and serves computed JSON; the React app only fetches `/api/tower`. The browser never calls Jira. The API is read-only — no endpoint mutates. |
+
+
+## Automation rules — deeper discovery, 2026-07-20 (later)
+
+| # | Claim | Status | Evidence |
+|---|---|---|---|
+| 87 | Real trigger `type` strings are known (not guessed) | ✅ VERIFIED 2026-07-20 | Extracted from `ruleTemplates` `trigger.types`: `jira.issue.field.changed` (rule 1), `jira.issue.event.trigger:transitioned` (2/5/6), `jira.jql.scheduled` (4/7), `jira.issue.event.trigger:created` (3), `jira.manual.trigger.issue`. Authoritative source, not training. |
+| 88 | `jira.issue.comment` is a valid action; the manual trigger validates with `value:null` | ✅ VERIFIED 2026-07-20 | With the manual trigger, a comment action returns a *field-level* error ("Please provide at least one valid value" for `comment`) — proof the type is recognised. Invalid types return a generic "systems are unavailable". |
+| 89 | Component **value schemas** cannot be obtained cleanly over the API | ✅ VERIFIED 2026-07-20 | No component-descriptor endpoint exists (`components`, `componentDescriptors`, `schema`, `pluggableComponents`… all 404 except the integrations list). The create endpoint's error channel returns generic "systems are unavailable" or bare 500s for most value shapes — too noisy to walk without guessing. The schemas live in the UI's JS bundle. |
+| 90 | The new "Flows" builder cannot be driven by the browser tools here | ✅ VERIFIED 2026-07-20 | It holds a live connection and never reaches `document_idle`, so `screenshot`, `find` and `read_page` all time out; a scripted "Save and enable" is React-gated and does not persist (rule count stays 0). A human can use it trivially — it is hostile to *automation*, not to a person. |
+| 91 | No automation rule was created on OPS by any of this probing | ✅ VERIFIED 2026-07-20 | Rule count on OPS is 0 after all probes. Nothing to clean up. |
