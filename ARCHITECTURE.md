@@ -130,6 +130,8 @@ back to the network for one more field.
 
 **Two front ends, one model.** The static `control_tower.py` and the React app in `webapp/` both render `app/analytics.py` output, so they cannot disagree about a number. `webapp/` is a Vite + React app; `app/server.py` is the seam that lets a browser reach the model without the token (the browser can't call Jira directly — CORS and auth). `webapp/` depends on `app/server.py` at runtime, never on the Python source, and holds no Jira logic of its own.
 
+**The React app has two data seams, same model.** In local dev it fetches `app/server.py` live. Hosted on GitHub Pages — a *static* host with no server to hold the token — it instead reads JSON that `app/server.py`'s sibling `app/export_pages.py` bakes at deploy time (in CI, where the token lives), through the same `store` + `control_tower` pipeline. So the token never reaches the browser in either mode, and a static page still shows real Jira data, refreshed on the deploy schedule. See `webapp/DEPLOY-PAGES.md`.
+
 **Why the static control tower is HTML and not a live dashboard.** It renders once and is
 self-contained — no server, no CDN, works offline, same as `demo.html`. It exists because
 Jira's own dashboards cannot trend a custom datetime field, normalise a rate per analyst, or

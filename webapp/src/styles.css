@@ -50,6 +50,8 @@ header.mast {
 .mast h1 { font-size: 1.35rem; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
 .mast .sub { color: var(--muted); font-family: var(--mono); font-size: 0.72rem;
   text-transform: uppercase; letter-spacing: 0.1em; }
+.fresh { color: var(--accent); }
+.fresh::before { content: "● "; font-size: 0.7em; vertical-align: middle; }
 .controls { margin-left: auto; display: flex; gap: 0.5rem; align-items: center; }
 .controls button, .controls select {
   font-family: var(--mono); font-size: 0.78rem; color: var(--ink);

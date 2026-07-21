@@ -67,6 +67,7 @@ python3 -m app.cli metrics --project OPS --by-tower   # the six scoreboard metri
 python3 -m app.cli sla --project OPS   # recompute SLA from the timeline, not seeded values
 python3 -m app.cli tower --project OPS --out out/control-tower.html  # self-contained HTML control tower
 python3 -m app.server & (cd webapp && bun run dev)   # interactive React control tower on localhost:5173
+python3 -m app.export_pages       # bake the model to webapp/public/data/*.json (for GitHub Pages)
 python3 -m fixtures.reset         # wipe issues so you can rehearse again
 
 # ITSM — Jira Service Management (writes only jira_config/state/.jsm_state.json)

@@ -1,12 +1,29 @@
 # Control tower — React app
 
-An interactive control tower for the L1/L2 tower, in React, reading **live** Jira.
+An interactive control tower for the L1/L2 tower, in React, aligned with Jira.
 
 It is the moving-parts sibling of the static `app/control_tower.py` page: same numbers
 (both come from `app/analytics.py`), but with a project switcher, window selector, theme
-toggle, live refetch, and sortable tables.
+toggle, refresh, and sortable tables.
 
-## Why there is a backend
+## Two data sources, one UI
+
+The app reads its model from one of two places (chosen automatically, override with
+`VITE_DATA_MODE`):
+
+| Mode | Where it runs | Data source |
+|---|---|---|
+| `api` | **local dev** | the live `app/server.py` backend, which holds the token |
+| `static` | **GitHub Pages** | JSON baked at deploy time by `app/export_pages.py` |
+
+Both consume the same `app/analytics.py` model, so they cannot disagree about a figure, and
+in neither case does the browser ever hold the Jira token or call Jira directly.
+
+**Hosting on GitHub Pages → [DEPLOY-PAGES.md](DEPLOY-PAGES.md).** A scheduled GitHub Action
+bakes the data (token stays in CI) and deploys; the page is current to within the refresh
+interval and re-polls itself so a left-open tab reflects each new deploy.
+
+## Why there is a backend (local dev)
 
 A browser cannot call Jira Cloud directly — CORS blocks the origin, and the API token
 must never reach the frontend. So a small Python API (`app/server.py`) holds the token,

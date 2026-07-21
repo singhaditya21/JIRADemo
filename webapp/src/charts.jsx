@@ -93,9 +93,10 @@ export function AnalystBand({ people, mean, lo, hi, w = 640, rowH = 20 }) {
 
 // FTR vs reopen scatter over weeks - the pairing that makes gaming visible.
 export function Pairing({ weeks, r, w = 480, h = 260, pad = 34 }) {
-  const pts = weeks.filter((p) => p.ftr != null && p.reopen != null);
+  // The model (app/analytics.ftr_vs_reopen) keys these ftr_pct / reopen_pct.
+  const pts = weeks.filter((p) => p.ftr_pct != null && p.reopen_pct != null);
   if (pts.length < 2) return <div className="state">not enough weeks</div>;
-  const xs = pts.map((p) => p.ftr), ys = pts.map((p) => p.reopen);
+  const xs = pts.map((p) => p.ftr_pct), ys = pts.map((p) => p.reopen_pct);
   const xmin = Math.min(...xs), xmax = Math.max(...xs);
   const ymin = Math.min(...ys), ymax = Math.max(...ys);
   const sx = (v) => pad + ((v - xmin) / (xmax - xmin || 1)) * (w - 2 * pad);
@@ -105,7 +106,7 @@ export function Pairing({ weeks, r, w = 480, h = 260, pad = 34 }) {
       <line x1={pad} y1={h - pad} x2={w - pad} y2={h - pad} stroke={GRID} />
       <line x1={pad} y1={pad} x2={pad} y2={h - pad} stroke={GRID} />
       {pts.map((p, i) => (
-        <circle key={i} cx={sx(p.ftr)} cy={sy(p.reopen)} r="4" fill="var(--accent)" opacity={0.35 + (0.6 * i) / pts.length} />
+        <circle key={i} cx={sx(p.ftr_pct)} cy={sy(p.reopen_pct)} r="4" fill="var(--accent)" opacity={0.35 + (0.6 * i) / pts.length} />
       ))}
       <text x={w / 2} y={h - 6} fontSize="10" textAnchor="middle" fill={AX} fontFamily="var(--mono)">first-time resolution %  →</text>
       <text x={12} y={h / 2} fontSize="10" textAnchor="middle" fill={AX} fontFamily="var(--mono)" transform={`rotate(-90 12 ${h / 2})`}>

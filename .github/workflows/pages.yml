@@ -1,0 +1,82 @@
+name: Deploy control tower to GitHub Pages
+
+# Builds the React control tower (webapp/) and deploys it to GitHub Pages, with the Jira
+# data baked in at build time by app/export_pages.py. The Jira token lives ONLY here, as a
+# repo secret — it never reaches the browser, and the browser never calls Jira (a public
+# static page could not do either securely). So the site is "aligned with Jira, refreshed on
+# schedule": current to within the cron interval below.
+#
+# One-time setup (see webapp/DEPLOY-PAGES.md):
+#   1. Repo must be able to publish Pages: PUBLIC repo (free, recommended for this demo), or
+#      a private repo on GitHub Pro. NOTE the published site is world-readable either way.
+#   2. Settings -> Pages -> Source: GitHub Actions.
+#   3. Add repo secrets JIRA_SITE, JIRA_EMAIL, JIRA_TOKEN (Settings -> Secrets and variables
+#      -> Actions). Set them yourself so the token is never handled in chat or committed.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Every 15 minutes = near-real-time. GitHub may delay scheduled runs under load.
+    # Actions minutes are METERED on private repos (2000/mo free) — a 15-min cron can exceed
+    # that, so widen this (e.g. "0 * * * *" hourly) if the repo is private, or make the repo
+    # public for unlimited minutes. The seeded data changes rarely, so hourly is usually fine.
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Bake Jira data to static JSON
+        env:
+          JIRA_SITE: ${{ secrets.JIRA_SITE }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+        run: python3 -m app.export_pages   # stdlib only, no pip install needed
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build the React app
+        working-directory: webapp
+        env:
+          VITE_BASE: /JIRADemo/
+          VITE_DATA_MODE: static
+        run: |
+          bun install --frozen-lockfile   # uses the committed webapp/bun.lock (reproducible)
+          bun run build
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true   # self-enable Pages on first run so no manual toggle is needed
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: webapp/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

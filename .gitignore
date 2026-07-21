@@ -28,3 +28,4 @@ Thumbs.db
 webapp/node_modules/
 webapp/dist/
 webapp/.vite/
+webapp/public/data/
