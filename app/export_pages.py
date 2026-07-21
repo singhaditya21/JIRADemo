@@ -134,6 +134,48 @@ def _record(issue, alias):
     return r
 
 
+# --- Snapshot history --------------------------------------------------------
+# The per-week sparklines show trend WITHIN one window; they cannot show how a headline KPI
+# moved deploy-over-deploy (was FTR 64% last week, 61% today?). That needs a point appended
+# each run and persisted. This bake appends one dated point per project per run to
+# `{project}-history.json`; the CI job commits it back (see pages.yml) so it accumulates. The
+# point is keyed by UTC day, so many runs on one day collapse to one point (last write wins) —
+# no fabricated past, just the real scoreboard captured as each bake sees it.
+HISTORY_WINDOW = 90     # the canonical window the trend tracks (matches the dashboard default)
+HISTORY_CAP = 180       # keep ~6 months of daily points, then roll off the oldest
+
+
+def _history_point(model, generated_at):
+    # NOTE: no run timestamp here on purpose — the point carries only the UTC `date` and the
+    # KPI values, so two bakes on the same day produce a byte-identical file and the CI
+    # commit-back is skipped (no churn). Rounded to 2 dp for the same reason.
+    sb = model.get("scoreboard") or {}
+    val = lambda k: (lambda v: round(v, 2) if isinstance(v, (int, float)) else v)((sb.get(k) or {}).get("value"))
+    return {"date": generated_at[:10], "volume": model.get("volume"),
+            "ftr_pct": val("ftr_pct"), "escalation_pct": val("escalation_pct"),
+            "reopen_pct": val("reopen_pct"), "sla_pct": val("sla_pct"),
+            "response_pct": val("response_pct"), "aged_14d": val("aged_14d")}
+
+
+def _append_history(out_dir, project, point):
+    """Append/replace today's point in {project}-history.json; return the point count."""
+    path = out_dir / f"{project}-history.json"
+    hist = []
+    if path.exists():
+        try:
+            doc = json.loads(path.read_text())
+            hist = doc.get("points", []) if isinstance(doc, dict) else (doc or [])
+        except (ValueError, OSError):
+            hist = []                                 # a corrupt history never breaks a bake
+    hist = [p for p in hist if p.get("date") != point["date"]]   # replace same UTC day
+    hist.append(point)
+    hist.sort(key=lambda p: p.get("date") or "")
+    hist = hist[-HISTORY_CAP:]
+    path.write_text(json.dumps({"project": project, "window_days": HISTORY_WINDOW,
+                                "points": hist}, separators=(",", ":"), default=str))
+    return len(hist)
+
+
 def export(out_dir, day_windows):
     require_env()                                     # clear message if a secret is missing
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -150,6 +192,7 @@ def export(out_dir, day_windows):
         try:                                          # whole per-project body: one bad project
             st = S.fetch(j, project, F, with_changelog=True)   # changelog -> record timelines
             alias = _pseudonymise_map(st.issues) if pseudo else None
+            snapshot = None                           # the canonical-window model for history
             for days in day_windows:
                 model = build_model(st.issues, st.now, days, project,
                                     site=st.site, pages=st.pages, warnings=list(st.warnings))
@@ -164,7 +207,13 @@ def export(out_dir, day_windows):
                 (out_dir / name).write_text(json.dumps(payload, separators=(",", ":")))
                 index["files"][f"{project}-{days}"] = name
                 print(f"  + {name}  ({payload.get('volume')} in window, {st.pages} page(s))")
+                if days == HISTORY_WINDOW or snapshot is None:
+                    snapshot = payload                # prefer the 90d window, else the first
                 ok_any = True
+            # one dated snapshot point per project per run (accumulates via CI commit-back)
+            hn = _append_history(out_dir, project, _history_point(snapshot, generated_at))
+            index.setdefault("history_files", {})[project] = f"{project}-history.json"
+            print(f"  + {project}-history.json  ({hn} point(s))")
             # one record file per project (all issues); the client windows it per view
             records = [_record(i, alias) for i in st.issues]
             rname = f"{project}-records.json"

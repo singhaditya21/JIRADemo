@@ -709,6 +709,56 @@ export function SlaByType({ model, records, open }) {
   );
 }
 
+// ---- Snapshot trends: how the headline KPIs move DEPLOY-OVER-DEPLOY -------------------
+// The per-week sparklines trend within one window; this trends the scoreboard itself across
+// daily bakes (app/export_pages appends one dated point per run; CI commits it back). Colour
+// is direction-aware: green when the latest move is an improvement, red when it regresses.
+const TREND_KPIS = [
+  { k: "ftr_pct", lab: "First-time resolution", better: "up", unit: "%" },
+  { k: "sla_pct", lab: "Resolution SLA", better: "up", unit: "%" },
+  { k: "response_pct", lab: "Response SLA", better: "up", unit: "%" },
+  { k: "escalation_pct", lab: "Escalation rate", better: "down", unit: "%" },
+  { k: "reopen_pct", lab: "Reopen rate", better: "down", unit: "%" },
+  { k: "aged_14d", lab: "Aged > 14 days", better: "down", unit: "" },
+];
+
+export function SnapshotTrends({ history }) {
+  const pts = history || [];
+  const n = pts.length;
+  return (
+    <div className="panel span-2">
+      <h2>Trends over time — daily snapshots</h2>
+      <p className="why">
+        Every scheduled bake appends one dated point, so headline KPIs are tracked
+        deploy-over-deploy — the movement the within-window sparklines can't show.{" "}
+        {n < 2
+          ? <><strong>Building history:</strong> {n} snapshot{n === 1 ? "" : "s"} so far — a line appears once ≥2 daily bakes have run.</>
+          : <>{n} daily points; the latest move colours each card.</>}
+      </p>
+      {n >= 1 && (
+        <div className="trend-grid">
+          {TREND_KPIS.map((kpi) => {
+            const series = pts.map((p) => ({ y: p[kpi.k] }));
+            const last = pts[n - 1][kpi.k];
+            const prev = n >= 2 ? pts[n - 2][kpi.k] : null;
+            const d = prev == null || last == null ? null : last - prev;
+            const improving = d == null || d === 0 ? null : (kpi.better === "up" ? d > 0 : d < 0);
+            const fmt = (v) => (v == null ? "—" : kpi.unit === "%" ? `${f1(v)}%` : `${Math.round(v)}`);
+            const col = improving == null ? "var(--accent)" : improving ? "var(--ok)" : "var(--crit)";
+            return (
+              <div className="trend-card" key={kpi.k}>
+                <div className="trend-head"><span>{kpi.lab}</span><span className="tnum" style={{ color: col }}>{fmt(last)}</span></div>
+                <Sparkline points={series} h={50} fmt={fmt} color={col} />
+                <div className="trend-foot">{d == null ? "first point" : `${d > 0 ? "▲" : d < 0 ? "▼" : "±"}${f1(Math.abs(d))}${kpi.unit === "%" ? " pts" : ""} vs prev`}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---- OPS tier-flow / ping-pong (theme D) from the changelog timelines ------------------
 export function TierFlow({ model, records, open }) {
   const rows = inWindow(records, model);

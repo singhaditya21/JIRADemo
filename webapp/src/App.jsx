@@ -3,7 +3,8 @@ import { KpiStrip, PairingPanel, Analysts, KBGap, Towers, Intake, Ageing,
   SlaOutcomes, BacklogFlow, ChannelQuality, AgeingByStatus,
   QueueByStatus, EscalationReasons, InsightsFeed, IntegrityStrip, ImpactUrgency,
   MajorIncident, TierFlow, PracticeMix, IncidentManagement, ChangeManagement,
-  ProblemManagement, RequestFulfilment, SlaByType, CustomerSatisfaction } from "./panels.jsx";
+  ProblemManagement, RequestFulfilment, SlaByType, CustomerSatisfaction,
+  SnapshotTrends } from "./panels.jsx";
 import { Drawer } from "./drill.jsx";
 
 const PROJECTS = ["OPS", "ITSM"];
@@ -17,7 +18,7 @@ const LENSES = [
 // Which panels each lens shows, in order — now project-aware: the ITSM project gets ITIL
 // panels (incident/change/problem/request/SLA-by-type), OPS gets its L1/L2-native ones
 // (tier-flow, Impact×Urgency, major incident). `records` powers the record-derived panels.
-function lensPanels(lens, project, model, open, records) {
+function lensPanels(lens, project, model, open, records, history) {
   const P = { model, open };
   const R = { model, open, records };
   const itsm = project === "ITSM";
@@ -48,6 +49,7 @@ function lensPanels(lens, project, model, open, records) {
   ];
   return [
     <InsightsFeed key="ins" {...P} />,
+    <SnapshotTrends key="trend" history={history} />,
     ...(itsm
       ? [<PracticeMix key="pmx" {...R} />, <IncidentManagement key="im" {...R} />,
          <ChangeManagement key="cm" {...R} />, <ProblemManagement key="pm" {...R} />,
@@ -147,6 +149,7 @@ export default function App() {
   const [theme, setTheme] = useTheme();
   const [drill, setDrill] = useState(null);   // the clicked-into detail, or null
   const [records, setRecords] = useState({}); // {project: [...]}, lazy-loaded for drills
+  const [history, setHistory] = useState({}); // {project: [points]}, the daily snapshot trend
   const [lens, setLens] = useState(boot.lens || localStorage.getItem("ct-lens") || "overview");
   useEffect(() => { localStorage.setItem("ct-lens", lens); }, [lens]);
   // keep the URL in sync so the current view is a shareable link
@@ -165,6 +168,16 @@ export default function App() {
       .then((j) => j?.records && setRecords((prev) => ({ ...prev, [project]: j.records })))
       .catch(() => {});
   }, [model, project, records]);
+
+  // Lazy-load the daily snapshot history (static-only; the file is committed back by CI).
+  // Absent/empty is fine — the trend panel says "building history".
+  useEffect(() => {
+    if (!model || history[project] || DATA_MODE !== "static") return;
+    fetch(`${BASE}data/${project}-history.json?_=${Date.now()}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => setHistory((prev) => ({ ...prev, [project]: (j && j.points) || [] })))
+      .catch(() => {});
+  }, [model, project, history]);
 
   const load = useCallback((quiet = false) => {
     const id = ++reqId.current;
@@ -239,7 +252,7 @@ export default function App() {
             </div>
             <KpiStrip model={model} lens={lens} open={setDrill} />
             <div className="grid">
-              {lensPanels(lens, project, model, setDrill, records[project] || null)}
+              {lensPanels(lens, project, model, setDrill, records[project] || null, history[project] || null)}
             </div>
             <p className="note">
               Every figure is computed by <span className="mono">app/analytics.py</span> — the same code the static
