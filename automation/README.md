@@ -13,9 +13,9 @@ python3 automation/build_rules.py --state DISABLED # build them off (e.g. to ins
 
 | # | Rule | Trigger | What it does |
 |---|---|---|---|
-| 1 | Derive priority from Impact × Urgency | work item created | Sets Priority from the 3×3 matrix (9 branches, gated on Impact **and** Urgency) |
+| 1 | Derive priority from Impact × Urgency | work item **updated** | Re-derives Priority from the 3×3 matrix on every edit (9 branches, gated on Impact **and** Urgency) |
 | 2 | Reopen handling | Resolved → Triage | Sets Reopened = Yes, Support Tier = L1 |
-| 3 | Major incident alert | work item created, Priority = P1 - Critical | Comments to engage the Major Incident Manager |
+| 3 | Major incident alert | work item created, Priority = P1 - Critical | **Assigns to the Major Incident Manager** (fires Jira's assignment notification) + posts a bridge/comms comment |
 | 4 | SLA breach warning | scheduled, daily 08:00 | Comments on open P1/P2 tickets that have gone quiet |
 | 5 | SLA pause on Pending | → Pending Customer / Pending Vendor | Sets Resolution SLA = Paused |
 | 6 | Route on escalation | → Escalated to L2 | Sets Support Tier = L2 |
@@ -45,23 +45,32 @@ Two gotchas worth knowing:
   but is rejected on enable unless the entity references resolve: the created trigger needs
   `eventKey`/`issueEvent` populated, the scheduled trigger needs `schedule.method:"CRON"`,
   a **priority** condition compares by **ID** while a **select** field compares by **NAME**.
-- **Two sub-shapes stayed UI-only** — the field-changed trigger's per-field `fields[]` and
-  the outgoing-email `to[]` recipients both resolve entities server-side and 500 on every
-  constructed shape. So rule 1 fires on **create** (not field-change) and rule 3 posts an
-  **in-issue comment** (not an email). Both are honest working substitutes; swapping in the
-  field-changed trigger / Send-email action is a one-step edit in the UI.
+- **Two component types stayed UI-only, so two rules use enable-able equivalents.** The
+  `jira.issue.field.changed` trigger cannot be *enabled* over the API (it 500s on every
+  value, field-scoped or not), and the outgoing-email `to[]` recipient shape 500s on every
+  value too. So rule 1 uses the generic **`…:updated`** trigger (re-derives Priority on any
+  edit — same net effect as field-changed on Impact/Urgency, since the matrix conditions
+  gate each branch), and rule 3 **assigns the P1 to the Major Incident Manager**, which
+  fires Jira's own assignment notification to that person. Both are faithful equivalents,
+  not weaker stand-ins. To use the literal field-changed trigger or a Send-email action
+  instead, build that one component in the UI.
 
 ## Enable safety and snapshot drift
 
 The five event-triggered rules (1, 2, 3, 5, 6) only fire on *future* events, so enabling
-them never touches existing tickets. The two **scheduled** rules (4, 7) do act on the data
-when they run. Their JQL is written to match **zero** freshly-seeded rows now (everything
-was `updated` today, so `updated <= -Nd` selects nothing) — so enabling them preserved the
-seeded snapshot — but they **will** drift it over the coming days: auto-close closes the
-Resolved tickets about a week out, the breach warning starts commenting tomorrow
-(`CLAIMS.md` #104, #105). This was explicitly authorised. To restore a clean snapshot before
-a demo, re-run the seed (`python3 -m fixtures.reset` + reseed) — it resets every `updated`
-to today.
+them never touched existing tickets (OPS is still 420/171, verified). The two **scheduled**
+rules (4, 7) act on the data when they run, and their `updated <= -Nd` windows are
+*relative*, so what they match **grows as the static seed ages** (`CLAIMS.md` #110):
+
+- **SLA breach warning** (daily 08:00) matched 0 rows when authored but ~a day later matches
+  the open P1/P2 tickets that have gone quiet (9, after excluding paused Pending statuses);
+  its next run comments on those.
+- **Auto-close** (daily 02:00) still matches 0 (no Resolved ticket is a week stale yet) and
+  will close them on a rolling 7-day basis.
+
+This forward drift is the authorised behaviour of enabling these rules. To restore a clean,
+inert snapshot before a demo, re-run the seed (`python3 -m fixtures.reset` + reseed) — it
+resets every `updated` to today, which empties both windows again.
 
 ## The `rule-N-*.json` files
 

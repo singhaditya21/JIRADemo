@@ -78,6 +78,19 @@ def action_edit(pairs, field_type=SELECT):
             "children": []}
 
 
+def action_assign(account_id):
+    # Assign to a specific user. The assignment fires Jira's own notification-scheme email
+    # to the new assignee - which is how the major-incident rule "notifies" the MIM without
+    # needing the outgoing-email recipient shape (that one 500s on every constructed value).
+    return {"component": "ACTION", "type": "jira.issue.assign",
+            "value": {"assignType": "SPECIFY_USER", "smartValue": None,
+                      "itsmOpsOncall": None, "jql": None, "issueToCopy": None,
+                      "fieldToCopy": None, "listAssignMethod": None,
+                      "assignee": {"type": "ID", "value": account_id},
+                      "restrictedToGroup": None, "group": None, "role": None},
+            "children": []}
+
+
 def action_comment(text, once=False):
     return {"component": "ACTION", "type": "jira.issue.comment",
             "value": {"comment": text, "publicComment": False, "commentVisibility": None,
@@ -93,15 +106,19 @@ def action_transition(to_status):
             "children": []}
 
 
-def condition_field(field, value, field_type=SELECT, compare=None):
-    # A field-value condition. The compareValue reference differs by field type, and the
-    # difference only bites when the rule is ENABLED (server-side validation):
-    #   - select custom fields (Impact/Urgency): compareValue by NAME
-    #   - the system Priority field:             compareValue by ID (see condition_priority)
+def condition_field(field, value, field_type=SELECT, compare=None, field_id=None):
+    # A field-value condition. Two subtleties, both server-side and only enforced on ENABLE:
+    #   - compareValue reference differs by field type: select fields by NAME, the system
+    #     Priority field by ID (see condition_priority).
+    #   - selectedField SHOULD be by ID when the field NAME is not unique. 'Urgency' exists
+    #     twice on this instance (customfield_10044 populated, customfield_10071 empty), so a
+    #     NAME reference could silently bind to the empty field and the branch never matches.
+    #     Pass field_id to pin it. (Same duplicate-name hazard shared/fields.py handles.)
     if compare is None:
         compare = {"type": "NAME", "value": value}
+    selected = {"type": "ID", "value": field_id} if field_id else {"type": "NAME", "value": field}
     return {"component": "CONDITION", "type": "jira.issue.condition",
-            "value": {"selectedField": {"type": "NAME", "value": field},
+            "value": {"selectedField": selected,
                       "selectedFieldType": field_type, "comparison": "EQUALS",
                       "compareValue": compare},
             "children": []}
@@ -121,6 +138,18 @@ def _priority_id(name):
         for p in json.loads(body):
             _PRIORITY_IDS[p["name"]] = p["id"]
     return _PRIORITY_IDS[name]
+
+
+_ME = {}
+
+
+def _my_account_id():
+    # The token user is the sole Major Incident Manager on this instance, so "assign to me"
+    # is "assign to the MIM". Resolved live for portability rather than hard-coded.
+    if not _ME:
+        _, body = http("GET", "/rest/api/3/myself")
+        _ME["id"] = json.loads(body)["accountId"]
+    return _ME["id"]
 
 
 def block(children):
@@ -145,6 +174,17 @@ def trigger_created():
              "issueEvent": "issue_created"})
 
 
+def trigger_updated():
+    # Fires on any edit to a work item. The design's "field value changed on Impact/Urgency"
+    # trigger (jira.issue.field.changed) cannot be *enabled* over the API - it 500s on every
+    # constructed value, field-scoped or not - so priority derivation runs on this generic
+    # edit trigger and the matrix conditions gate each branch. Same net behaviour: Priority is
+    # kept consistent with Impact x Urgency after any change.
+    return ("jira.issue.event.trigger:updated",
+            {"eventFilters": [PROJECT_ARI], "eventKey": "jira:issue_updated",
+             "issueEvent": "issue_generic"})
+
+
 def trigger_scheduled(cron, jql):
     # method must be "CRON" (not null) or ENABLED validation 500s.
     return ("jira.jql.scheduled",
@@ -154,14 +194,27 @@ def trigger_scheduled(cron, jql):
 
 
 def priority_matrix_blocks():
+    imp_id, urg_id = _field_id("Impact"), _field_id("Urgency")
     blocks = []
     for (impact, urgency), priority in PRIORITY_MATRIX.items():
         blocks.append(block([
-            condition_field("Impact", impact),
-            condition_field("Urgency", urgency),
+            condition_field("Impact", impact, field_id=imp_id),
+            condition_field("Urgency", urgency, field_id=urg_id),
             action_edit([("Priority", priority)], field_type=PRIORITY_FT),
         ]))
     return blocks
+
+
+_FIELD_IDS = {}
+
+
+def _field_id(name):
+    # Resolve the *correct* custom-field id (disambiguating duplicate names like Urgency) from
+    # the build state jira_config wrote, rather than by name over the API where it is ambiguous.
+    if not _FIELD_IDS:
+        state = Path(__file__).resolve().parent.parent / "jira_config" / "state" / ".build_state.json"
+        _FIELD_IDS.update(json.loads(state.read_text()).get("fields", {}))
+    return _FIELD_IDS[name]
 
 
 # --- the seven rules ---------------------------------------------------------------------
@@ -199,24 +252,27 @@ def rule_specs():
 
     # --- the four that needed the newly-discovered component schemas ---
     {"name": "Derive priority from Impact x Urgency",
-     "description": ("When a work item is created, set Priority from the Impact x Urgency "
-                     "matrix. Each branch sets Priority only when both Impact and Urgency "
-                     "match. (Fires on create; the 're-derive whenever Impact/Urgency later "
-                     "change' variant needs the field-changed trigger, which cannot be "
-                     "enabled over the API - add it in the UI if wanted.)"),
-     "state": "ENABLED", "trigger": trigger_created(),
+     "description": ("Keep Priority consistent with the Impact x Urgency matrix. Fires on "
+                     "every edit; each branch sets Priority only when both Impact and Urgency "
+                     "match, so Priority re-derives whenever Impact or Urgency changes. "
+                     "(Uses the generic issue-updated trigger because the field-scoped "
+                     "field-changed trigger cannot be enabled over the API.)"),
+     "state": "ENABLED", "trigger": trigger_updated(),
      "components": priority_matrix_blocks()},
 
     {"name": "Major incident alert",
-     "description": ("When a P1 - Critical work item is raised, flag it for the Major "
-                     "Incident Manager with a bridge/comms note. (A comment is used rather "
-                     "than an email action because the email recipient shape could not be "
-                     "built over the API; swap in Send email in the UI to notify externally.)"),
+     "description": ("When a P1 - Critical work item is raised, assign it to the Major "
+                     "Incident Manager - which fires Jira's own assignment notification - "
+                     "and post the bridge/comms note. (Assignment is used rather than a Send "
+                     "email action because the email recipient shape 500s on every value "
+                     "built over the API; the assignment notification reaches the same person.)"),
      "state": "ENABLED", "trigger": trigger_created(),
      "components": [
          condition_priority("P1 - Critical"),
+         action_assign(_my_account_id()),
          action_comment("Major incident raised (P1 - Critical). Major Incident Manager "
-                        "engaged - open the bridge and start comms per the P1 runbook."),
+                        "engaged (assigned) - open the bridge and start comms per the P1 "
+                        "runbook."),
      ]},
 
     {"name": "SLA breach warning",
@@ -226,7 +282,7 @@ def rule_specs():
      "trigger": trigger_scheduled(
          "0 0 8 ? * *",
          'project = OPS AND resolution = EMPTY AND priority in ("P1 - Critical", "P2 - High") '
-         'AND updated <= -1d'),
+         'AND status not in ("Pending Customer", "Pending Vendor") AND updated <= -1d'),
      "components": [action_comment("SLA breach warning - this ticket is open, high priority "
                                    "and has had no update in over a day. Prioritise or "
                                    "escalate before the resolution SLA breaches.")]},

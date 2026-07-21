@@ -30,13 +30,23 @@ round-trip intact. See `probe` in the session scratch — the method is reproduc
   `rate`/`rateInterval` are the interval alternative; leave 0 when using cron.
 - `executionMode:"jql"` + a `jql` runs the actions once per matching work item.
 
-### `jira.issue.field.changed`  ⚠️ partial
-Top level round-trips as
-`{"eventFilters":["<projectARI>"],"changeType":"ANY_CHANGE","fields":null,"actions":[]}`
-but the **`fields`** item shape resolves server-side and 500s on every candidate tried
-(`{"type":"NAME"|"ID","value":…}`, raw id, numeric id, `{"fieldId":…}`). `ANY_CHANGE`
-with `fields:null` fires on *any* edit — usable, just not field-scoped. Field scoping
-needs one UI capture.
+### `jira.issue.event.trigger:updated`  ✅ verified (enables)
+```json
+{"eventFilters":["<projectARI>"],"eventKey":"jira:issue_updated","issueEvent":"issue_generic"}
+```
+Fires on any edit to a work item. This is what the priority-derivation rule uses to
+re-derive on Impact/Urgency changes, since `jira.issue.field.changed` (below) cannot be
+enabled over the API.
+
+### `jira.issue.field.changed`  🔴 cannot be enabled over the API
+Round-trips *disabled* as
+`{"eventFilters":["<projectARI>"],"changeType":"ANY_CHANGE","fields":null,"actions":[]}`,
+but **ENABLED validation 500s on every variant** — field-scoped or not (`fields:null`
+included). And the per-field `fields[]` item shape 500s on every candidate
+(`{"type":"NAME"|"ID","value":…}`, raw id, numeric id, `{"fieldId":…}`) because it resolves
+the field server-side. So this trigger is UI-only; the design's "field value changed on
+Impact/Urgency" is served instead by the generic `…:updated` trigger above + value
+conditions.
 
 ## Actions
 
@@ -63,16 +73,39 @@ needs one UI capture.
 `destinationStatus` takes a `{"type":"NAME","value":…}` status ref; `operations` can carry
 field edits performed during the transition (same shape as `jira.issue.edit`).
 
-### `jira.issue.outgoing.email`  ⚠️ partial
+### `jira.issue.assign`  ✅ verified (enables)
+```json
+{"assignType":"SPECIFY_USER","smartValue":null,"itsmOpsOncall":null,"jql":null,
+ "issueToCopy":null,"fieldToCopy":null,"listAssignMethod":null,
+ "assignee":{"type":"ID","value":"<accountId>"},
+ "restrictedToGroup":null,"group":null,"role":null}
+```
+`assignee` takes `{"type":"ID","value":"<accountId>"}` (a bare string or `type:"ACCOUNT_ID"`
+both 500). Assigning fires Jira's own notification-scheme email to the new assignee — which
+is how the major-incident rule "notifies" the MIM without the outgoing-email recipient shape.
+
+### `jira.issue.outgoing.email`  🔴 recipient shape is UI-only
 Top level round-trips as
 `{"to":[],"cc":[],"bcc":[],"subject":"…","body":"…","mimeType":"text/html","convertLineBreaks":true}`
-but the **`to`** recipient item shape resolves server-side and 500s on every candidate
-tried (`{"type":"REPORTER"}`, `{"type":"FIELD","value":"reporter"}`, email strings, …).
-Recipients need one UI capture.
+but the **`to`** recipient item resolves server-side and 500s on every candidate tried
+(`{"type":"REPORTER"}`, `{"type":"FIELD","value":"reporter"}`, email strings, …). So the
+major-incident rule uses `jira.issue.assign` (above) for its notification instead of email.
 
-### Other confirmed real action types (value shape not fully mapped)
-- `jira.issue.assign` — `{"assignType":"SPECIFY_USER",…,"assignee":…}`
+## Conditions and branching  ✅ verified
+- `jira.condition.container.block` (component `CONDITION`, value `{}`) is an IF block: its
+  `children` (conditions + actions) run only when its conditions match. Sibling blocks
+  evaluate independently, so a list of them is a branch matrix (this is the 9-cell priority
+  matrix).
+- `jira.issue.condition` (field-value comparison):
+  ```json
+  {"selectedField":{"type":"NAME","value":"Impact"},
+   "selectedFieldType":"<field-type-key>","comparison":"EQUALS",
+   "compareValue":{"type":"NAME","value":"High"}}
+  ```
+  **Enable asymmetry:** a *select* custom field compares by `{"type":"NAME"}`, but the
+  *system Priority* field compares by `{"type":"ID","value":"<priorityId>"}`.
 
-## Not yet mapped
-- If / else block (branch/condition container) — needed for the 9-cell priority matrix.
-- `jira.issue.field.changed` `fields[]`, `jira.issue.outgoing.email` `to[]` — server-resolved.
+## Still UI-only (server-resolved, 500 on every constructed value)
+- `jira.issue.field.changed` — cannot be enabled at all over the API (see above); the
+  `…:updated` trigger is the enable-able substitute.
+- `jira.issue.outgoing.email` `to[]` recipients — `jira.issue.assign` is the substitute used.

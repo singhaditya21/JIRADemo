@@ -109,9 +109,11 @@ accountable rather than a free choice under pressure.
 REST API for automation (`/rest/api/3/automation/rules` → 404), but the Automation
 **internal** API takes create + enable, so they are built and reconciled in code by
 `automation/build_rules.py` — not hand-built in the UI. The recipes below are the design;
-`automation/README.md` records what is actually on the instance, including the two places a
-rule uses a verified substitute for a sub-shape that stayed UI-only (rule 1 fires on
-**create** rather than on field-change; rule 3 posts a **comment** rather than an email).
+`automation/README.md` records what is actually on the instance, including two places a rule
+uses a verified equivalent for a component type that stayed UI-only: rule 1 uses the generic
+**issue-updated** trigger (re-derives Priority on any edit — same effect as field-changed on
+Impact/Urgency) and rule 3 **assigns the P1 to the Major Incident Manager**, firing Jira's
+own assignment notification, rather than a Send-email action.
 
 ### Rule 1 — Derive priority (the anti-inflation rule)
 - **Trigger:** Field value changed → `Impact` or `Urgency`

@@ -301,3 +301,33 @@ canonical shape the server normalises to, `DELETE` the probe). Method + shapes a
 | 104 | Building/enabling the four rules did not alter the seeded snapshot | ✅ VERIFIED 2026-07-21 | OPS unchanged after: 420 total, 171 tier-L2. The created-trigger rules fire only on future creates; the two scheduled rules' JQL was written to match **0** of the freshly-seeded rows now (everything `updated` today, so `updated <= -Nd` selects nothing) while staying correct going forward. Verified 0 matches via `search/approximate-count`. |
 | 105 | The two scheduled rules WILL drift the snapshot over the coming days | ⚠️ KNOWN / by design | Auto-close (`status = Resolved AND updated <= -7d`, daily 02:00) will close the 39 currently-Resolved tickets about a week out; SLA breach warning (open P1/P2 `updated <= -1d`, daily 08:00) will start commenting tomorrow. This is what "enable" means and was explicitly authorised. Mitigation is the existing rehearsal path: `fixtures.reset` + reseed resets every `updated` to today, so a pre-demo reseed restores the snapshot. |
 | 106 | Two component sub-shapes remain UI-only; the rules use verified equivalents | ✅ VERIFIED 2026-07-21 | The field-changed trigger's per-field `fields[]` and the outgoing-email `to[]` recipients resolve entities server-side and 500 on every constructed shape. So priority-derivation fires on **create** (not field-change) and the major-incident alert posts an **in-issue comment** (not an email). Both are honest, working substitutes; swapping in the field-changed trigger / Send-email action is a one-step UI edit, noted in each rule's description. |
+
+
+## Automation rules — the two substitutes upgraded to faithful equivalents, 2026-07-21
+
+Following "fix and yes to all", the two rules that had used weaker stand-ins were rebuilt to
+match the design intent, still entirely over the API and still ENABLED. #106 is **REFINED**
+by these: the substitutes are now faithful equivalents, and the reason is sharper — it is not
+that two *sub-shapes* are UI-only, it is that the whole `jira.issue.field.changed` trigger
+cannot be *enabled* over the API and the outgoing-email `to[]` recipient 500s on every value.
+
+| # | Claim | Status | Evidence |
+|---|---|---|---|
+| 107 | Rule 1 now re-derives Priority on every edit, not only at create | ✅ VERIFIED 2026-07-21 | Rebuilt on `jira.issue.event.trigger:updated` (fires on any work-item edit). Read back: trigger `…:updated`, 9 `container.block` branches / 36 nodes, ENABLED. The matrix conditions gate each branch, so Priority re-derives whenever Impact or Urgency changes — the behaviour the field-changed trigger would give, which itself 500s on enable over the API. `canOtherRuleTrigger=false` and the edit is idempotent, so no self-loop. |
+| 108 | Rule 3 now notifies the Major Incident Manager, not just comments | ✅ VERIFIED 2026-07-21 | Rebuilt as created-trigger + condition(Priority=P1 - Critical) + `jira.issue.assign` to the MIM's accountId + comment. Read back: assign action stores `assignType:SPECIFY_USER, assignee:{type:ID,value:<accountId>}`, ENABLED. Assigning fires Jira's notification-scheme email to the assignee — a real notification — since the outgoing-email `to[]` shape 500s on every constructed value. |
+| 109 | All seven remain ENABLED and OPS is still the known-good snapshot | ✅ VERIFIED 2026-07-21 | After the rebuild: 7 rules, 7 ENABLED. OPS 420 total, 171 tier-L2 — unchanged. The two rebuilt rules fire only on future create/edit events, so nothing retroactive; the two scheduled rules' JQL still matches 0 seeded rows. |
+
+
+## Automation rules — adversarial verification pass, 2026-07-21
+
+An 8-agent workflow re-verified all seven rules against their design (5 PASS, 3 CONCERN).
+The matrix was confirmed correct in all 9 cells; no rule-to-rule cascade or self-loop exists
+(`canOtherRuleTrigger=false` on all seven, and the matrix edit is idempotent). Two concerns
+were real and are now fixed; one is a correction to an earlier over-claim.
+
+| # | Claim | Status | Evidence |
+|---|---|---|---|
+| 110 | The "scheduled JQL matches 0 seeded rows" safety (#104/#105) was point-in-time and has decayed | ⚠️ **CORRECTED** | The `updated <= -Nd` windows are *relative*; the seed is a *static* snapshot. ~24h after seeding, the SLA-breach JQL now matches real seeded tickets (9 after the Pending fix below), and its next 08:00 run will comment on them. Auto-close (`updated <= -7d`) still matches 0 and will begin closing week-old Resolved tickets on a rolling basis. Enabling was non-retroactive (verified: OPS still 420/171); the drift is the authorised forward behaviour, and a pre-demo reseed (`fixtures.reset` + reseed) resets every `updated` to today and restores the inert snapshot. |
+| 111 | Rule 1 conditions now bind Impact/Urgency by field ID, closing a silent-no-op trap | ✅ VERIFIED 2026-07-21 | `Urgency` exists twice (`customfield_10044` populated, `customfield_10071` empty) so a NAME reference could bind to the empty field and never match. Rebuilt: all 9 branches' `selectedField` read back as `{"type":"ID","value":"customfield_10004"}` (Impact) and `…10044` (Urgency), resolved from `.build_state.json`. Same duplicate-name hazard `shared/fields.py` handles. |
+| 112 | Rule 4 no longer warns on paused-SLA tickets | ✅ VERIFIED 2026-07-21 | JQL now excludes `status in ("Pending Customer","Pending Vendor")` — where the resolution SLA is legitimately paused by rule 5 — dropping the match set from 11 to 9. Read back live. |
+| 113 | Rule 1 co-fires with transitions but is safe | ✅ VERIFIED 2026-07-21 | Because it uses the generic issue-updated trigger, a human transition (escalate/pause/reopen) also re-runs the matrix on that ticket. Not a cascade (`canOtherRuleTrigger=false`); both rules match the one event. Effect is a benign idempotent re-derive — seeded priorities already equal the matrix — but it will overwrite a *manually* off-matrix Priority on the next edit, which is the intended "priority is a derivation, not a negotiation" behaviour. |
