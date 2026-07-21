@@ -242,3 +242,12 @@ verification below was read-only or `--dry-run`.
 | 81 | ITSM Incident and Problem workflows now carry the escalation path | ✅ VERIFIED 2026-07-20 | Both updated to version 5. `Escalate to L2` (gate), `Escalate - major incident` (role 10049, no validators), `Accept at L2`, and Resolve extended from Escalated. Gate reads back as `system:validate-field-value` on both. |
 | 82 | ITSM reseeded through the new path; history coherent | ✅ VERIFIED 2026-07-20 | 420 issues, 0 off-target, 158/158 escalated with gate evidence. 80/80 sampled tier-L2 Incident/Problem have `Escalated to L2` in history (was 0/100). The seeder's hardcoded edge graph and the escalated-at-pre-escalation-status artifact were both fixed. |
 | 83 | The reseed never touched OPS | ✅ VERIFIED 2026-07-20 | `fixtures.jsm_seed --reset` asserts `PROJECT != OPS` and runs `guard_ops` (420 issues, 4 types, scheme name) before and after every phase. OPS confirmed 420/171/171 after. |
+
+
+## React control tower — 2026-07-20
+
+| # | Claim | Status | Evidence |
+|---|---|---|---|
+| 84 | The control tower runs as a React app on localhost | ✅ VERIFIED 2026-07-20 | `webapp/` (Vite + React, built with bun) renders at `http://localhost:5173`, proxying `/api` to `app/server.py` on 8000. `bun run build` compiles clean (33 modules, 154 KB). Live DOM check: all 7 panels render, no console errors. |
+| 85 | The React figures match the reference implementation | ✅ VERIFIED 2026-07-20 | The scoreboard tiles read 61.8% / 40.7% / 4.3% / 78.9% / 96.6% / 60 — identical to `app/metrics.py` and the static tower, because all three consume `app/analytics.build_model`. |
+| 86 | No Jira token reaches the browser | ✅ VERIFIED 2026-07-20 | `app/server.py` holds the token and serves computed JSON; the React app only fetches `/api/tower`. The browser never calls Jira. The API is read-only — no endpoint mutates. |

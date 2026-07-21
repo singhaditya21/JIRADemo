@@ -23,3 +23,8 @@ dist/
 # OS noise
 .DS_Store
 Thumbs.db
+
+# React control tower build artifacts (bun install / bun run build recreate them)
+webapp/node_modules/
+webapp/dist/
+webapp/.vite/

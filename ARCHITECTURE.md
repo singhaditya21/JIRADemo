@@ -120,6 +120,7 @@ package split, one level down:
 | `analytics.py` | Pure functions: records in, numbers out. All seven control-tower panels. | **No** |
 | `sla_engine.py` / `metrics.py` | The SLA recompute and the six-metric scoreboard. | Read-only |
 | `control_tower.py` | Render a self-contained HTML control tower from the analytics. | No — takes data in |
+| `server.py` | Local JSON API (stdlib http.server) serving the analytics model to the React app. | Read-only |
 
 **`analytics.py` makes no network calls.** That is what lets the metric definitions be
 tested against a fixed list of records with no Jira at all — the thing the repo did not have
@@ -127,7 +128,9 @@ before and now can. `store.py` is the single seam where a wire format meets the 
 that way, or the "testable without Jira" property evaporates the first time a metric reaches
 back to the network for one more field.
 
-**Why the control tower is HTML and not a live dashboard.** It renders once and is
+**Two front ends, one model.** The static `control_tower.py` and the React app in `webapp/` both render `app/analytics.py` output, so they cannot disagree about a number. `webapp/` is a Vite + React app; `app/server.py` is the seam that lets a browser reach the model without the token (the browser can't call Jira directly — CORS and auth). `webapp/` depends on `app/server.py` at runtime, never on the Python source, and holds no Jira logic of its own.
+
+**Why the static control tower is HTML and not a live dashboard.** It renders once and is
 self-contained — no server, no CDN, works offline, same as `demo.html`. It exists because
 Jira's own dashboards cannot trend a custom datetime field, normalise a rate per analyst, or
 pair two metrics so gaming one exposes the other. If a panel here only reproduces a Jira
