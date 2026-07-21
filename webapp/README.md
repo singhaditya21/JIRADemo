@@ -6,6 +6,13 @@ It is the moving-parts sibling of the static `app/control_tower.py` page: same n
 (both come from `app/analytics.py`), but with a project switcher, window selector, theme
 toggle, refresh, and sortable tables.
 
+**Eleven panels, every chart drillable.** Scoreboard, FTR-vs-reopen, escalation-per-analyst,
+SLA outcomes, backlog & flow, KB gap, tower comparison, channel quality, intake mix, open-work
+ageing, and ageing owned-vs-paused. Click any tile, bar, row, dot, or point to open a drawer
+with the numbers behind the mark and a deep link into Jira's issue navigator (JQL built with
+`cf[<id>]` clause names so it resolves exactly). `src/drill.jsx` holds the drawer and the
+per-mark detail; the chart primitives in `src/charts.jsx` take an `onPick` callback.
+
 ## Two data sources, one UI
 
 The app reads its model from one of two places (chosen automatically, override with

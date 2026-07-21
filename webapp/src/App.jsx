@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { Scoreboard, PairingPanel, Analysts, KBGap, Towers, Intake, Ageing } from "./panels.jsx";
+import { Scoreboard, PairingPanel, Analysts, KBGap, Towers, Intake, Ageing,
+  SlaOutcomes, BacklogFlow, ChannelQuality, AgeingByStatus } from "./panels.jsx";
+import { Drawer } from "./drill.jsx";
 
 const PROJECTS = ["OPS", "ITSM"];
 const WINDOWS = [30, 90, 180];
@@ -55,6 +57,7 @@ export default function App() {
   const [err, setErr] = useState(null);
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useTheme();
+  const [drill, setDrill] = useState(null);   // the clicked-into detail, or null
   const reqId = useRef(0);
 
   const load = useCallback((quiet = false) => {
@@ -120,13 +123,17 @@ export default function App() {
         {model && !err && (
           <>
             <div className="grid">
-              <Scoreboard model={model} />
-              <PairingPanel model={model} />
-              <Analysts model={model} />
-              <KBGap model={model} />
-              <Towers model={model} />
-              <Intake model={model} />
-              <Ageing model={model} />
+              <Scoreboard model={model} open={setDrill} />
+              <PairingPanel model={model} open={setDrill} />
+              <Analysts model={model} open={setDrill} />
+              <SlaOutcomes model={model} open={setDrill} />
+              <BacklogFlow model={model} open={setDrill} />
+              <KBGap model={model} open={setDrill} />
+              <Towers model={model} open={setDrill} />
+              <ChannelQuality model={model} open={setDrill} />
+              <Intake model={model} open={setDrill} />
+              <Ageing model={model} open={setDrill} />
+              <AgeingByStatus model={model} open={setDrill} />
             </div>
             <p className="note">
               Every figure is computed by <span className="mono">app/analytics.py</span> — the same code the static
@@ -136,6 +143,7 @@ export default function App() {
                 : " Read-only against Jira."}
               {model.warnings?.length ? ` ${model.warnings.length} data warning(s).` : ""}
             </p>
+            <Drawer drill={drill} model={model} onClose={() => setDrill(null)} />
           </>
         )}
       </main>

@@ -6,7 +6,7 @@ const AX = "var(--muted)";
 const GRID = "var(--rule)";
 
 // Weekly sparkline with an area fill and an emphasised endpoint.
-export function Sparkline({ points, w = 520, h = 90, pad = 6, fmt = (v) => v, color = "var(--accent)" }) {
+export function Sparkline({ points, w = 520, h = 90, pad = 6, fmt = (v) => v, color = "var(--accent)", onPick }) {
   const vals = points.map((p) => p.y).filter((v) => v != null);
   if (!vals.length) return <div className="state">no data in window</div>;
   const min = Math.min(...vals), max = Math.max(...vals);
@@ -27,6 +27,10 @@ export function Sparkline({ points, w = 520, h = 90, pad = 6, fmt = (v) => v, co
       <path d={area} fill={color} opacity="0.12" />
       <path d={line} fill="none" stroke={color} strokeWidth="1.6" />
       {last && <circle cx={last[0]} cy={last[1]} r="3" fill={color} />}
+      {onPick && points.map((p, i) => p.y == null ? null : (
+        <circle key={i} cx={x(i)} cy={y(p.y)} r="7" fill="transparent" style={{ cursor: "pointer" }}
+          onClick={() => onPick(p, i)}><title>{fmt(p.y)}</title></circle>
+      ))}
       <text x={pad} y={h - 1} fontSize="9" fill={AX} fontFamily="var(--mono)">{fmt(points[0]?.y)}</text>
       <text x={w - pad} y={h - 1} fontSize="9" fill={AX} textAnchor="end" fontFamily="var(--mono)">
         {fmt(points[points.length - 1]?.y)}
@@ -36,7 +40,7 @@ export function Sparkline({ points, w = 520, h = 90, pad = 6, fmt = (v) => v, co
 }
 
 // Horizontal bars for a labelled distribution.
-export function Bars({ rows, w = 520, barH = 22, gap = 6, color = "var(--accent)", fmt = (v) => v }) {
+export function Bars({ rows, w = 520, barH = 22, gap = 6, color = "var(--accent)", fmt = (v) => v, onPick }) {
   const max = Math.max(...rows.map((r) => r.value), 1);
   const h = rows.length * (barH + gap);
   const labW = 150, valW = 56;
@@ -45,8 +49,10 @@ export function Bars({ rows, w = 520, barH = 22, gap = 6, color = "var(--accent)
       {rows.map((r, i) => {
         const y = i * (barH + gap);
         const bw = ((w - labW - valW) * r.value) / max;
+        const pick = onPick ? () => onPick(r, i) : undefined;
         return (
-          <g key={i}>
+          <g key={i} onClick={pick} style={pick ? { cursor: "pointer" } : undefined}>
+            {pick && <rect x={0} y={y} width={w} height={barH} fill="transparent" />}
             <text x={0} y={y + barH * 0.7} fontSize="11" fill="var(--ink)">{r.label}</text>
             <rect x={labW} y={y} width={Math.max(1, bw)} height={barH} rx="2" fill={r.color || color} opacity={r.dim ? 0.5 : 1} />
             <text x={w} y={y + barH * 0.7} fontSize="11" textAnchor="end" fontFamily="var(--mono)" fill="var(--ink-soft)">
@@ -60,7 +66,7 @@ export function Bars({ rows, w = 520, barH = 22, gap = 6, color = "var(--accent)
 }
 
 // Analyst escalation rate with the mean line and a 2-sigma band (PILOT exit criterion 6).
-export function AnalystBand({ people, mean, lo, hi, w = 640, rowH = 20 }) {
+export function AnalystBand({ people, mean, lo, hi, w = 640, rowH = 20, onPick }) {
   const sorted = [...people].sort((a, b) => (b.rate ?? 0) - (a.rate ?? 0));
   const max = Math.max(hi, ...sorted.map((p) => p.rate ?? 0), 0.01);
   const labW = 140, h = sorted.length * rowH + 24;
@@ -73,8 +79,10 @@ export function AnalystBand({ people, mean, lo, hi, w = 640, rowH = 20 }) {
       {sorted.map((p, i) => {
         const y = i * rowH;
         const out = p.rate != null && (p.rate < lo || p.rate > hi);
+        const pick = onPick ? () => onPick(p, i) : undefined;
         return (
-          <g key={i}>
+          <g key={i} onClick={pick} style={pick ? { cursor: "pointer" } : undefined}>
+            {pick && <rect x={0} y={y} width={w} height={rowH} fill="transparent" />}
             <text x={0} y={y + rowH * 0.72} fontSize="10.5" fill="var(--ink)">{p.analyst}</text>
             {p.rate != null && (
               <>
@@ -92,7 +100,7 @@ export function AnalystBand({ people, mean, lo, hi, w = 640, rowH = 20 }) {
 }
 
 // FTR vs reopen scatter over weeks - the pairing that makes gaming visible.
-export function Pairing({ weeks, r, w = 480, h = 260, pad = 34 }) {
+export function Pairing({ weeks, r, w = 480, h = 260, pad = 34, onPick }) {
   // The model (app/analytics.ftr_vs_reopen) keys these ftr_pct / reopen_pct.
   const pts = weeks.filter((p) => p.ftr_pct != null && p.reopen_pct != null);
   if (pts.length < 2) return <div className="state">not enough weeks</div>;
@@ -105,9 +113,15 @@ export function Pairing({ weeks, r, w = 480, h = 260, pad = 34 }) {
     <svg viewBox={`0 0 ${w} ${h}`} width="100%">
       <line x1={pad} y1={h - pad} x2={w - pad} y2={h - pad} stroke={GRID} />
       <line x1={pad} y1={pad} x2={pad} y2={h - pad} stroke={GRID} />
-      {pts.map((p, i) => (
-        <circle key={i} cx={sx(p.ftr_pct)} cy={sy(p.reopen_pct)} r="4" fill="var(--accent)" opacity={0.35 + (0.6 * i) / pts.length} />
-      ))}
+      {pts.map((p, i) => {
+        const pick = onPick ? () => onPick(p, i) : undefined;
+        return (
+          <g key={i} onClick={pick} style={pick ? { cursor: "pointer" } : undefined}>
+            {pick && <circle cx={sx(p.ftr_pct)} cy={sy(p.reopen_pct)} r="11" fill="transparent" />}
+            <circle cx={sx(p.ftr_pct)} cy={sy(p.reopen_pct)} r="4" fill="var(--accent)" opacity={0.35 + (0.6 * i) / pts.length}><title>{p.week}</title></circle>
+          </g>
+        );
+      })}
       <text x={w / 2} y={h - 6} fontSize="10" textAnchor="middle" fill={AX} fontFamily="var(--mono)">first-time resolution %  →</text>
       <text x={12} y={h / 2} fontSize="10" textAnchor="middle" fill={AX} fontFamily="var(--mono)" transform={`rotate(-90 12 ${h / 2})`}>
         reopen %  →

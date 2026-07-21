@@ -17,11 +17,11 @@ on:
   push:
     branches: [main]
   schedule:
-    # Every 15 minutes = near-real-time. GitHub may delay scheduled runs under load.
-    # Actions minutes are METERED on private repos (2000/mo free) — a 15-min cron can exceed
-    # that, so widen this (e.g. "0 * * * *" hourly) if the repo is private, or make the repo
-    # public for unlimited minutes. The seeded data changes rarely, so hourly is usually fine.
-    - cron: "*/15 * * * *"
+    # Once per 24 hours (06:00 UTC). The seeded tower changes slowly, so a daily refresh
+    # keeps the published page aligned with Jira without churn. GitHub may delay scheduled
+    # runs by a few minutes under load. Tighten this if you want fresher data (the repo is
+    # public, so Actions minutes are unlimited).
+    - cron: "0 6 * * *"
   workflow_dispatch: {}
 
 permissions:

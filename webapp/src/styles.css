@@ -103,3 +103,43 @@ tbody tr:hover { background: var(--accent-dim); }
 .note { color: var(--muted); font-size: 0.78rem; border-left: 2px solid var(--accent);
   padding-left: 0.8rem; margin-top: 0.9rem; }
 a { color: var(--accent); }
+
+/* ---- drill-down affordances & drawer -------------------------------------- */
+.hint { color: var(--accent); font-family: var(--mono); font-size: 0.72rem; }
+.tile.clickable { cursor: pointer; transition: background 0.12s, transform 0.06s; }
+.tile.clickable:hover { background: var(--accent-dim); }
+.tile.clickable:active { transform: translateY(1px); }
+.tile.clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+tr.clickable { cursor: pointer; }
+tr.clickable:hover td { background: var(--accent-dim); }
+
+.miniboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: 1px; background: var(--rule); border: 1px solid var(--rule); margin-top: 0.8rem; }
+.miniboard > div { background: var(--raised); padding: 0.5rem 0.6rem; display: grid; gap: 0.1rem; }
+.miniboard .k { font-family: var(--mono); font-size: 0.6rem; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--muted); }
+.miniboard .v { font-size: 1.05rem; font-weight: 650; }
+
+.drawer-overlay { position: fixed; inset: 0; background: rgba(4, 12, 14, 0.42);
+  display: flex; justify-content: flex-end; z-index: 50; animation: fade 0.12s ease; }
+.drawer { width: min(420px, 92vw); height: 100%; background: var(--paper);
+  border-left: 1px solid var(--rule); box-shadow: -12px 0 40px rgba(0,0,0,0.18);
+  display: flex; flex-direction: column; animation: slidein 0.16s ease; }
+@keyframes fade { from { opacity: 0; } }
+@keyframes slidein { from { transform: translateX(24px); opacity: 0.6; } }
+.drawer-head { display: flex; align-items: center; justify-content: space-between;
+  padding: 1rem 1.1rem; border-bottom: 1px solid var(--rule); }
+.drawer-head h3 { margin: 0; font-size: 0.98rem; }
+.drawer-x { background: none; border: 1px solid var(--rule); color: var(--muted);
+  width: 28px; height: 28px; border-radius: 6px; cursor: pointer; font-size: 0.9rem; }
+.drawer-x:hover { color: var(--ink); border-color: var(--accent); }
+.drawer-body { padding: 1.1rem; overflow-y: auto; flex: 1; }
+.drill-big { font-size: 2.4rem; font-weight: 680; line-height: 1; margin-bottom: 0.9rem; color: var(--accent); }
+.drill-note { color: var(--muted); font-size: 0.78rem; margin: 1rem 0 0.4rem; }
+.kv { display: grid; grid-template-columns: 1fr auto; gap: 0.35rem 1rem; margin: 0; }
+.kv dt { color: var(--muted); font-size: 0.82rem; }
+.kv dd { margin: 0; font-weight: 600; text-align: right; }
+.drawer-jira { display: block; margin: 0; padding: 0.85rem 1.1rem; text-align: center;
+  border-top: 1px solid var(--rule); background: var(--accent); color: #fff;
+  text-decoration: none; font-weight: 600; font-size: 0.85rem; }
+.drawer-jira:hover { filter: brightness(1.08); }

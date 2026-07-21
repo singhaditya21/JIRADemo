@@ -21,63 +21,32 @@ newest deploy), and never exposes a secret.
 ```
  GitHub Action (holds token)                          Browser (no token, no Jira call)
    app/export_pages.py ──► webapp/public/data/*.json ──► built into dist/ ──► Pages ──► React app
-   every ~15 min                                                                        reads /data/*.json
+   daily (06:00 UTC)                                                                    reads /data/*.json
 ```
 
 If you need genuinely live-on-load data, that requires a tiny always-on backend to hold the
 token (Vercel / Cloudflare Worker / Render) that the page calls — which is no longer "hosted
 on GitHub Pages". The scheduled-refresh model here is the Pages-native answer.
 
-## One-time setup
+## Setup status — one step left
 
-### 1. Make the repo publishable on Pages
+Most of the setup is already done:
 
-The repo is currently **private**. Two consequences to decide on first:
+- ✅ **Repo is public** (`gh repo edit … --visibility public`) — free Pages + unlimited
+  Actions minutes. Note the published site is **world-readable**; the baked data is
+  synthetic/seeded with no real PII (verified: no emails, analyst names are made up).
+- ✅ **Pages enabled** with the GitHub Actions source (`build_type: workflow`).
+- ✅ **`JIRA_SITE` and `JIRA_EMAIL` secrets set** (neither is sensitive).
+- ✅ **Refresh is daily** (cron `0 6 * * *`).
 
-- Publishing Pages from a **private** repo requires **GitHub Pro** (Free will not publish).
-- The published site is **world-readable** regardless of repo visibility (private Pages with
-  viewer access control is Enterprise-only). The baked data is synthetic/seeded — there is no
-  real PII in it (verified: no email addresses, analyst names are made up) — so this is low
-  risk, but be aware the tower's numbers become public.
-
-For this demo the simplest and recommended choice is **make the repo public** — it gives free
-Pages *and* unlimited Actions minutes (see step 4). Your call:
+**The one remaining step — add the token yourself** (never handled in chat or committed):
 
 ```bash
-gh repo edit singhaditya21/JIRADemo --visibility public   # or leave private + GitHub Pro
+gh secret set JIRA_TOKEN --repo singhaditya21/JIRADemo    # paste when prompted, not echoed
 ```
-
-### 2. Turn on Pages with the Actions source
-
-Settings → Pages → **Build and deployment → Source: GitHub Actions**. (The workflow also runs
-`actions/configure-pages`, which enables it where permitted.)
-
-### 3. Add the Jira credentials as repo secrets
-
-**You do this yourself** so the token is never handled in chat or committed. Settings →
-Secrets and variables → Actions → New repository secret, add three:
-
-| Secret | Value |
-|---|---|
-| `JIRA_SITE` | `https://singhaditya21.atlassian.net` |
-| `JIRA_EMAIL` | your Atlassian account email |
-| `JIRA_TOKEN` | an Atlassian API token (id.atlassian.com → API tokens) |
-
-Or from a shell where you paste the token yourself:
-
-```bash
-gh secret set JIRA_SITE  --repo singhaditya21/JIRADemo --body "https://singhaditya21.atlassian.net"
-gh secret set JIRA_EMAIL --repo singhaditya21/JIRADemo --body "you@example.com"
-gh secret set JIRA_TOKEN --repo singhaditya21/JIRADemo               # prompts, not echoed
-```
-
-### 4. (Private repo only) mind the Actions minutes
-
-Actions minutes are metered on **private** repos (2000/month free). The default cron is every
-15 min; that can exceed the budget on a private repo. Widen it in
-[`.github/workflows/pages.yml`](../.github/workflows/pages.yml) (e.g. `0 * * * *` hourly) — the
-seeded data changes rarely, so hourly is plenty — or make the repo public for unlimited
-minutes.
+Get one at id.atlassian.com → API tokens. Then trigger a build (below); it publishes at the
+URL above. Until the token is set, the build stops cleanly at "Missing environment variables:
+… JIRA_TOKEN" and nothing deploys.
 
 ## Deploy
 
