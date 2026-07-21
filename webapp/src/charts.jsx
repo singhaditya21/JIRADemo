@@ -99,6 +99,40 @@ export function AnalystBand({ people, mean, lo, hi, w = 640, rowH = 20, onPick }
   );
 }
 
+// A labelled matrix (e.g. Impact × Urgency). cell(rowLabel, colLabel) -> {value, sub?}.
+export function Heatmap({ rows, cols, cell, onPick, w = 380, cellH = 46, labW = 96 }) {
+  const vals = rows.flatMap((r) => cols.map((c) => (cell(r, c) || {}).value || 0));
+  const max = Math.max(1, ...vals);
+  const cw = (w - labW) / cols.length;
+  const h = rows.length * cellH + 22;
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} width="100%">
+      {cols.map((c, ci) => (
+        <text key={ci} x={labW + ci * cw + cw / 2} y={13} fontSize="10" textAnchor="middle" fill={AX} fontFamily="var(--mono)">{c}</text>
+      ))}
+      {rows.map((r, ri) => (
+        <g key={ri}>
+          <text x={0} y={22 + ri * cellH + cellH / 2 + 4} fontSize="10.5" fill="var(--ink)">{r}</text>
+          {cols.map((c, ci) => {
+            const d = cell(r, c) || { value: 0 };
+            const pick = onPick ? () => onPick(r, c, d) : undefined;
+            return (
+              <g key={ci} onClick={pick} style={pick ? { cursor: "pointer" } : undefined}>
+                <rect x={labW + ci * cw + 1.5} y={22 + ri * cellH + 1.5} width={cw - 3} height={cellH - 3} rx="3"
+                  fill="var(--accent)" opacity={0.1 + 0.72 * ((d.value || 0) / max)} />
+                <text x={labW + ci * cw + cw / 2} y={22 + ri * cellH + cellH / 2 - 1} fontSize="13" textAnchor="middle"
+                  fontWeight="650" fontFamily="var(--mono)" fill="var(--ink)">{d.value || ""}</text>
+                {d.sub && <text x={labW + ci * cw + cw / 2} y={22 + ri * cellH + cellH - 7} fontSize="8"
+                  textAnchor="middle" fill={AX} fontFamily="var(--mono)">{d.sub}</text>}
+              </g>
+            );
+          })}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
 // FTR vs reopen scatter over weeks - the pairing that makes gaming visible.
 export function Pairing({ weeks, r, w = 480, h = 260, pad = 34, onPick }) {
   // The model (app/analytics.ftr_vs_reopen) keys these ftr_pct / reopen_pct.

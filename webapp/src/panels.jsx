@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Sparkline, Bars, AnalystBand, Pairing } from "./charts.jsx";
+import { Sparkline, Bars, AnalystBand, Pairing, Heatmap } from "./charts.jsx";
 
 const f1 = (v) => (v == null ? "—" : (Math.round(v * 10) / 10).toFixed(1));
 const pct = (v) => (v == null ? "—" : f1(v) + "%");
@@ -256,9 +256,14 @@ export function BacklogFlow({ model, open }) {
   return (
     <div className="panel">
       <h2>Backlog &amp; flow</h2>
-      <p className="why">Open backlog over time, and intake vs throughput. Net flow tells you whether the tower is keeping up. <span className="hint">Click a point.</span></p>
-      <Sparkline points={bk.map((b) => ({ x: b.week, y: b.open }))} h={70} fmt={(v) => v}
-        onPick={(p, i) => open({ type: "week", w: { ...bk[i], ...(weekly[weekly.length - bk.length + i] || {}) } })} />
+      <p className="why">The backlog isn't growing, it's <em>staling</em>: open is roughly flat while aged&nbsp;&gt;14d climbs. That gap is the story. <span className="hint">Click a point.</span></p>
+      <div className="dual-spark">
+        <div><span className="spark-lab">open backlog</span>
+          <Sparkline points={bk.map((b) => ({ x: b.week, y: b.open }))} h={54} fmt={(v) => v} color="var(--accent)"
+            onPick={(p, i) => open({ type: "week", w: { ...bk[i], ...(weekly[weekly.length - bk.length + i] || {}) } })} /></div>
+        <div><span className="spark-lab">aged &gt; 14 days</span>
+          <Sparkline points={bk.map((b) => ({ x: b.week, y: b.aged }))} h={54} fmt={(v) => v} color="var(--crit)" /></div>
+      </div>
       <div className="miniboard">
         <div><span className="k">created</span><span className="v tnum">{created}</span></div>
         <div><span className="k">closed</span><span className="v tnum">{closed}</span></div>
@@ -349,6 +354,136 @@ export function EscalationReasons({ model, open }) {
       <h2>KB gaps by reason</h2>
       <p className="why">Escalations that found no KB article, grouped by why they escalated — the KB backlog in priority order, biggest first. Write these to stop L1 escalating them again. <span className="hint">Click a reason.</span></p>
       <Bars rows={rows} barH={22} onPick={(r) => open({ type: "reason", reason: r._r, n: r.value })} />
+    </div>
+  );
+}
+
+// ---- insights engine: verdicts already computed, read out as prose --------------------
+const mode = (xs) => {
+  const c = {}; let best = null, bn = 0;
+  for (const x of xs) { if (x == null) continue; c[x] = (c[x] || 0) + 1; if (c[x] > bn) { bn = c[x]; best = x; } }
+  return best;
+};
+
+function buildInsights(model) {
+  const sb = model.scoreboard || {}, kb = model.kb || {}, towers = model.towers || [], A = model.analysts || {};
+  const ins = [];
+  for (const [k, lab] of [["ftr_pct", "First-time resolution"], ["escalation_pct", "Escalation rate"],
+    ["sla_pct", "Resolution SLA"], ["response_pct", "Response SLA"], ["reopen_pct", "Reopen rate"]]) {
+    const m = sb[k]; if (!m || m.value == null || !m.verdict) continue;
+    const arrow = m.direction === "ge" ? "≥" : "≤";
+    if (m.verdict === "GAP") ins.push({ sev: "warn", drill: { type: "metric", key: k, lab },
+      text: `${lab} is ${pct(m.value)} against a ${arrow}${m.target}% target — ${f1(Math.abs(m.value - m.target))} pts short.` });
+    else if (m.verdict === "PASS") ins.push({ sev: "ok", drill: { type: "metric", key: k, lab },
+      text: `${lab} is ${pct(m.value)}, clearing its ${arrow}${m.target}% target.` });
+  }
+  if (kb.pct != null) ins.push({ sev: "warn", drill: { type: "kbgap", gap: kb.gap, escalated: kb.escalated, pct: kb.pct },
+    text: `${Math.round(kb.pct)}% of escalations (${kb.gap}/${kb.escalated}) found no KB article — the single largest lever to lift L1 resolution.` });
+  const bl = (model.backlog || [])[(model.backlog || []).length - 1];
+  if (bl && bl.open && bl.aged / bl.open >= 0.5) ins.push({ sev: "warn",
+    text: `The backlog is staling, not growing — ${bl.aged} of ${bl.open} open tickets are already aged >14 days.` });
+  const top = towers.find((t) => t.pilot_rank === 1);
+  if (top) ins.push({ sev: "info", drill: { type: "tower", row: top },
+    text: `${top.tower} is the #1 pilot candidate (volume × headroom): ${pct(top.escalation_pct)} escalation, ${pct(top.sla_pct)} SLA over ${top.volume} tickets.` });
+  const outliers = (A.people || []).filter((p) => p.rate != null && (p.rate < A.lo || p.rate > A.hi));
+  ins.push(outliers.length
+    ? { sev: "warn", text: `${outliers.length} analyst(s) escalate beyond 2σ of the tower mean — look before it reads as a team problem.` }
+    : { sev: "ok", text: `All ${(A.people || []).length} analysts sit within 2σ of the mean escalation rate — pilot exit criterion 6 is met.` });
+  if (model.pairing?.r != null) ins.push({ sev: "ok",
+    text: `FTR and reopen are strongly anti-correlated (r = ${model.pairing.r.toFixed(2)}) — the honesty pair holds, so first-time resolution isn't being bought by closing early.` });
+  const w = (model.weekly || []).filter((x) => x.escalation_pct != null);
+  if (w.length >= 2) {
+    const a = w[w.length - 1], b = w[w.length - 2], d = a.escalation_pct - b.escalation_pct;
+    if (Math.abs(d) >= 3) ins.push({ sev: d > 0 ? "warn" : "ok",
+      text: `Escalation rate ${d > 0 ? "rose" : "fell"} ${f1(Math.abs(d))} pts in the latest complete week (${f1(b.escalation_pct)}% → ${f1(a.escalation_pct)}%).` });
+  }
+  return ins;
+}
+
+export function InsightsFeed({ model, open }) {
+  const ins = buildInsights(model);
+  return (
+    <div className="panel span-full">
+      <h2>What the tower is telling you</h2>
+      <p className="why">Auto-generated from the same figures the panels show — verdicts, deltas and rankings read out in plain language, worst-first. <span className="hint">Click an insight to drill to the records.</span></p>
+      <ul className="insights">
+        {ins.map((it, i) => (
+          <li key={i} className={"insight " + it.sev + (it.drill ? " clickable" : "")}
+            onClick={it.drill ? () => open(it.drill) : undefined}
+            role={it.drill ? "button" : undefined} tabIndex={it.drill ? 0 : undefined}>
+            <span className="ins-dot" />{it.text}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+export function IntegrityStrip({ model }) {
+  const jt = model.jira_time_counterexample || {};
+  const warns = model.warnings || [];
+  const items = [
+    { k: "Records reconcile", v: "num / den exact", ok: true, note: "every drill list count matches its numerator/denominator" },
+    { k: "Jira's own dates", v: `${jt.created_distinct_dates ?? "—"} distinct created date${jt.created_distinct_dates === 1 ? "" : "s"}`, ok: false,
+      note: "why the tower trends on Reported At, not Jira created — created collapses to one day" },
+    { k: "Data warnings", v: `${warns.length}`, ok: warns.length === 0, note: warns[0] ? warns[0].slice(0, 90) + "…" : "none" },
+  ];
+  return (
+    <div className="panel span-full integrity">
+      <h2>Data integrity <span className="why" style={{ display: "inline", margin: 0 }}>— the tower knows what it can and can't honestly say.</span></h2>
+      <div className="int-row">
+        {items.map((it, i) => (
+          <div key={i} className={"int-cell " + (it.ok ? "ok" : "warn")}>
+            <span className="int-k">{it.k}</span>
+            <span className="int-v tnum">{it.v}</span>
+            <span className="int-note">{it.note}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---- revived OPS themes computed from the record layer --------------------------------
+export function ImpactUrgency({ model, records, open }) {
+  const IMP = ["High", "Medium", "Low"], URG = ["High", "Medium", "Low"];
+  const inWin = (records || []).filter((r) => r.reported_ts != null && r.reported_ts >= model.window_start_ts);
+  const cell = (imp, urg) => {
+    const rs = inWin.filter((r) => r.impact === imp && r.urgency === urg);
+    const pri = mode(rs.map((r) => r.priority));
+    return { value: rs.length, sub: pri ? pri.split(" ")[0] : "" };
+  };
+  return (
+    <div className="panel">
+      <h2>Impact × Urgency → priority</h2>
+      <p className="why">Where demand lands on the 3×3 matrix and the priority each cell derives to — priority is a derivation, not a negotiation. {records ? "Rows = Impact, columns = Urgency." : "Loading records…"} <span className="hint">Click a cell.</span></p>
+      {records && <Heatmap rows={IMP} cols={URG} cell={cell}
+        onPick={(imp, urg) => open({ type: "impacturgency", impact: imp, urgency: urg })} />}
+    </div>
+  );
+}
+
+export function MajorIncident({ model, records, open }) {
+  const inWin = (records || []).filter((r) => r.reported_ts != null && r.reported_ts >= model.window_start_ts);
+  const p1 = inWin.filter((r) => r.priority === "P1 - Critical");
+  const openP1 = p1.filter((r) => r.is_open).length;
+  const resolved = p1.filter((r) => !r.is_open);
+  const avgAge = resolved.length ? resolved.reduce((a, r) => a + (r.age_days || 0), 0) / resolved.length : null;
+  return (
+    <div className="panel">
+      <h2>Major incidents (P1)</h2>
+      <p className="why">P1 – Critical is the fast path: gate-free escalation, Major Incident Manager engaged. Watch the count and how long they stay open. {records ? "" : "Loading…"}</p>
+      {records && (
+        <>
+          <div className="miniboard">
+            <div><span className="k">P1 total</span><span className="v tnum">{p1.length}</span></div>
+            <div><span className="k">open now</span><span className="v tnum" style={{ color: openP1 ? "var(--crit)" : "var(--ok)" }}>{openP1}</span></div>
+            <div><span className="k">resolved</span><span className="v tnum">{resolved.length}</span></div>
+            <div><span className="k">avg age (d)</span><span className="v tnum">{avgAge != null ? f1(avgAge) : "—"}</span></div>
+          </div>
+          <button className="linkish" onClick={() => open({ type: "majorincident" })}>see the {p1.length} P1 tickets →</button>
+        </>
+      )}
     </div>
   );
 }

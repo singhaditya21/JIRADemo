@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { KpiStrip, PairingPanel, Analysts, KBGap, Towers, Intake, Ageing,
   SlaOutcomes, BacklogFlow, ChannelQuality, AgeingByStatus,
-  QueueByStatus, EscalationReasons } from "./panels.jsx";
+  QueueByStatus, EscalationReasons, InsightsFeed, IntegrityStrip, ImpactUrgency,
+  MajorIncident } from "./panels.jsx";
 import { Drawer } from "./drill.jsx";
 
 const PROJECTS = ["OPS", "ITSM"];
@@ -13,37 +14,47 @@ const LENSES = [
 ];
 
 // Which panels each lens shows, in order. Tier lenses reframe shared panels and add their own.
-function lensPanels(lens, model, open) {
+// `records` powers the panels computed from the record layer (Impact×Urgency, Major incident).
+function lensPanels(lens, model, open, records) {
   const P = { model, open };
+  const R = { model, open, records };
   if (lens === "L1") return [
+    <InsightsFeed key="ins" {...P} />,
     <QueueByStatus key="q" {...P} tier="L1" />,
     <SlaOutcomes key="sla" {...P} lens="L1" />,
     <PairingPanel key="pair" {...P} />,
     <Analysts key="an" {...P} />,
+    <ImpactUrgency key="iu" {...R} />,
     <KBGap key="kb" {...P} lens="L1" />,
     <ChannelQuality key="ch" {...P} />,
     <Intake key="in" {...P} />,
   ];
   if (lens === "L2") return [
+    <InsightsFeed key="ins" {...P} />,
     <QueueByStatus key="q" {...P} tier="L2" />,
     <SlaOutcomes key="sla" {...P} lens="L2" />,
     <KBGap key="kb" {...P} lens="L2" />,
     <EscalationReasons key="er" {...P} />,
+    <MajorIncident key="mi" {...R} />,
     <Towers key="tw" {...P} />,
     <AgeingByStatus key="abs" {...P} />,
     <BacklogFlow key="bf" {...P} />,
   ];
   return [
+    <InsightsFeed key="ins" {...P} />,
     <PairingPanel key="pair" {...P} />,
     <Analysts key="an" {...P} />,
     <SlaOutcomes key="sla" {...P} />,
     <BacklogFlow key="bf" {...P} />,
     <KBGap key="kb" {...P} />,
     <Towers key="tw" {...P} />,
+    <ImpactUrgency key="iu" {...R} />,
+    <MajorIncident key="mi" {...R} />,
     <ChannelQuality key="ch" {...P} />,
     <Intake key="in" {...P} />,
     <Ageing key="ag" {...P} />,
     <AgeingByStatus key="abs" {...P} />,
+    <IntegrityStrip key="int" {...P} />,
   ];
 }
 
@@ -104,14 +115,15 @@ export default function App() {
   useEffect(() => { localStorage.setItem("ct-lens", lens); }, [lens]);
   const reqId = useRef(0);
 
-  // Lazy-load the record-level dataset the first time a drill opens for a project; cached.
+  // Lazy-load the record-level dataset once the aggregate model is up (record-driven panels
+  // and drills both use it); cached per project.
   useEffect(() => {
-    if (!drill || records[project]) return;
+    if (!model || records[project]) return;
     fetch(`${BASE}data/${project}-records.json`)
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => j?.records && setRecords((prev) => ({ ...prev, [project]: j.records })))
       .catch(() => {});
-  }, [drill, project, records]);
+  }, [model, project, records]);
 
   const load = useCallback((quiet = false) => {
     const id = ++reqId.current;
@@ -186,7 +198,7 @@ export default function App() {
             </div>
             <KpiStrip model={model} lens={lens} open={setDrill} />
             <div className="grid">
-              {lensPanels(lens, model, setDrill)}
+              {lensPanels(lens, model, setDrill, records[project] || null)}
             </div>
             <p className="note">
               Every figure is computed by <span className="mono">app/analytics.py</span> — the same code the static

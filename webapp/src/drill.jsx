@@ -211,9 +211,46 @@ function detail(d, model) {
         </>,
       };
     }
+    case "impacturgency":
+      return {
+        title: `Impact ${d.impact} · Urgency ${d.urgency}`,
+        jql: `project = ${P} AND ${F.impact} = ${q(d.impact)} AND ${F.urgency} = ${q(d.urgency)}`,
+        body: <p className="drill-note">Tickets at Impact {d.impact} × Urgency {d.urgency}, and the priority they derive to. Priority is a derivation, not a negotiation.</p>,
+      };
+    case "majorincident":
+      return {
+        title: "Major incidents — P1 – Critical",
+        jql: `project = ${P} AND priority = ${q("P1 - Critical")}`,
+        body: <p className="drill-note">The fast-path tickets: gate-free escalation, Major Incident Manager engaged. Watch how long they stay open.</p>,
+      };
     default:
       return { title: "Detail", body: <p>No detail.</p>, jql: null };
   }
+}
+
+// Layer (b): small-multiples of the population behind a mark, sliced several ways.
+function Cohort({ rows }) {
+  if (!rows || rows.length < 3) return null;
+  const dims = [["tower", "by tower"], ["priority", "by priority"], ["status", "by status"], ["intake", "by channel"]];
+  const countBy = (k) => {
+    const c = {};
+    for (const r of rows) { const v = r[k] || "—"; c[v] = (c[v] || 0) + 1; }
+    return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 7).map(([label, value]) => ({ label, value }));
+  };
+  return (
+    <div className="cohort">
+      {dims.map(([k, h]) => {
+        const rs = countBy(k);
+        if (rs.length < 2) return null;   // no signal if everything is one value
+        return (
+          <div key={k} className="cohort-dim">
+            <span className="cohort-h">{h}</span>
+            <Bars rows={rs} barH={12} w={360} />
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 // ---- record layer: which records sit behind a mark, and how they reconcile --------------
@@ -254,6 +291,8 @@ function recordSpec(d, model) {
         : gt ? (r) => r.is_open && r.age_days >= +gt[1] : (r) => r.is_open;
       return { pred, windowed: false, reconcile: d.b.n };
     }
+    case "impacturgency": return { pred: (r) => r.impact === d.impact && r.urgency === d.urgency, windowed: true, reconcile: null };
+    case "majorincident": return { pred: (r) => r.priority === "P1 - Critical", hi: (r) => r.is_open, hiLab: "still open", windowed: true, reconcile: null };
     default: return null;   // week, ageStatus — aggregate-only
   }
 }
@@ -379,7 +418,11 @@ export function Drawer({ drill, model, records, onClose }) {
         <div className="drawer-body">
           {sel
             ? <RecordDetail record={sel} onBack={() => setSel(null)} />
-            : <>{body}{spec && <RecordList rows={rows || []} spec={spec} loading={!records} onPick={setSel} />}</>}
+            : <>
+                {body}
+                {spec && rows && <Cohort rows={rows} />}
+                {spec && <RecordList rows={rows || []} spec={spec} loading={!records} onPick={setSel} />}
+              </>}
         </div>
         {!sel && clause && (
           <a className="drawer-jira" href={jira(model.site, clause)} target="_blank" rel="noreferrer">
