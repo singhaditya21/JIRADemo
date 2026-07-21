@@ -9,11 +9,21 @@ pipeline the local `app.server` uses, and writes the computed models to
 `webapp/public/data/*.json`. Vite bundles `public/` into `dist/`, which is deployed to
 Pages. The React app then reads those static files — no token, no live Jira call, no CORS.
 
+Two kinds of file are written:
+  - `{project}-{days}.json`   the AGGREGATE model (one per window) the panels render.
+  - `{project}-records.json`  the RECORD-LEVEL dataset (one per project): every issue as a
+                              flat row plus the derived population booleans and a compact
+                              changelog timeline. The drill-down drawer lazy-loads this to
+                              show the actual Jira rows behind a mark and each record's
+                              tier/SLA history (roadmap Part III). Each aggregate model
+                              carries `window_start_ts`/`now_ts` so the client can filter
+                              records to the exact same window and reconcile counts.
+
 "Real time" therefore means "refreshed every time this runs" (the Actions schedule), not
-live-on-load. `index.json` carries the `generated_at` stamp the UI shows so a viewer always
-knows how fresh the data is.
+live-on-load. `index.json` carries the `generated_at` stamp the UI shows.
 
     python3 -m app.export_pages [--out webapp/public/data] [--days 30 90 180]
+    PSEUDONYMISE_ANALYSTS=1 python3 -m app.export_pages   # mask analyst names (see below)
 
 Read-only against Jira. Same numbers as the static HTML tower and the metrics CLI, because
 all of them consume `app.control_tower.build_model`.
@@ -21,8 +31,9 @@ all of them consume `app.control_tower.build_model`.
 
 import argparse
 import json
+import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from shared.jira_client import Jira, require_env
@@ -34,35 +45,89 @@ PROJECTS = ("OPS", "ITSM")
 DEFAULT_DAYS = (30, 90, 180)
 DEFAULT_OUT = Path(__file__).resolve().parent.parent / "webapp" / "public" / "data"
 
+# Per-record fields the drill list/detail render. Booleans (is_*, counts_as_*, kb_gap)
+# encode the exact population rules app/analytics uses, so a client-side filter on them
+# reconciles with the aggregate's numerator/denominator.
+RECORD_FIELDS = (
+    "key", "url", "summary", "issue_type", "status", "status_category", "priority",
+    "tower", "tier", "intake", "kb_checked", "escalation_reason", "root_cause",
+    "resolution_code", "response_sla", "resolution_sla", "reopened", "impact", "urgency",
+    "l1_analyst", "l2_analyst", "affected_service", "age_days", "response_hours",
+    "is_open", "is_done", "is_problem", "is_escalated", "is_reopened",
+    "counts_as_closed", "counts_as_ftr", "kb_gap",
+)
+
 
 def _jsonable(model):
     return json.loads(json.dumps(model, default=str))  # datetimes -> str, once
+
+
+def _ts(dt):
+    return dt.timestamp() if dt is not None else None
+
+
+def _pseudonymise_map(issues):
+    """Stable Analyst NN alias per real name — for a public host where the model would
+    otherwise expose named individuals' escalation rates (roadmap: privacy). Off by default
+    because this instance's seed names are synthetic; flip PSEUDONYMISE_ANALYSTS for real data."""
+    names = sorted({n for i in issues for n in (i.l1_analyst, i.l2_analyst) if n})
+    return {n: f"Analyst {k + 1:02d}" for k, n in enumerate(names)}
+
+
+def _record(issue, alias):
+    r = {f: getattr(issue, f) for f in RECORD_FIELDS}
+    if alias:
+        r["l1_analyst"] = alias.get(r["l1_analyst"], r["l1_analyst"])
+        r["l2_analyst"] = alias.get(r["l2_analyst"], r["l2_analyst"])
+    r["reported_at"] = issue.reported_at.isoformat() if issue.reported_at else None
+    r["reported_ts"] = _ts(issue.reported_at)
+    r["resolved_at"] = issue.resolved_at.isoformat() if issue.resolved_at else None
+    cl = issue.changelog or ()
+    r["changelog_hops"] = len(cl)
+    r["timeline"] = [{"at": c.at.isoformat() if c.at else None,
+                      "field": c.field, "from": c.frm, "to": c.to} for c in cl]
+    return r
 
 
 def export(out_dir, day_windows):
     require_env()                                     # clear message if a secret is missing
     out_dir.mkdir(parents=True, exist_ok=True)
     generated_at = datetime.now(timezone.utc).isoformat()
+    pseudo = os.environ.get("PSEUDONYMISE_ANALYSTS", "").lower() in ("1", "true", "yes")
     j = Jira()
     F = FIELDS.resolve(j)
 
     index = {"generated_at": generated_at, "projects": [], "windows": list(day_windows),
-             "files": {}, "errors": {}}
+             "files": {}, "record_files": {}, "errors": {}, "pseudonymised": pseudo}
     ok_any = False
 
     for project in PROJECTS:
         try:                                          # whole per-project body: one bad project
-            st = S.fetch(j, project, F)               # (missing/unreadable) records + continues
+            st = S.fetch(j, project, F, with_changelog=True)   # changelog -> record timelines
+            alias = _pseudonymise_map(st.issues) if pseudo else None
             for days in day_windows:
                 model = build_model(st.issues, st.now, days, project,
                                     site=st.site, pages=st.pages, warnings=list(st.warnings))
                 model["generated_at"] = generated_at
+                model["now_ts"] = _ts(st.now)
+                model["window_start_ts"] = _ts(st.now - timedelta(days=days))
+                if alias:                             # mask names in the analyst band too
+                    for p in (model.get("analysts", {}) or {}).get("people", []):
+                        p["analyst"] = alias.get(p.get("analyst"), p.get("analyst"))
                 payload = _jsonable(model)
                 name = f"{project}-{days}.json"
                 (out_dir / name).write_text(json.dumps(payload, separators=(",", ":")))
                 index["files"][f"{project}-{days}"] = name
                 print(f"  + {name}  ({payload.get('volume')} in window, {st.pages} page(s))")
                 ok_any = True
+            # one record file per project (all issues); the client windows it per view
+            records = [_record(i, alias) for i in st.issues]
+            rname = f"{project}-records.json"
+            (out_dir / rname).write_text(json.dumps(
+                {"project": project, "generated_at": generated_at, "count": len(records),
+                 "pseudonymised": pseudo, "records": records}, separators=(",", ":"), default=str))
+            index["record_files"][project] = rname
+            print(f"  + {rname}  ({len(records)} records, changelog)")
             index["projects"].append(project)
         except Exception as e:
             index["errors"][project] = f"{type(e).__name__}: {e}"
@@ -71,7 +136,7 @@ def export(out_dir, day_windows):
 
     # index.json is always written, even if a project failed, so the site still deploys.
     (out_dir / "index.json").write_text(json.dumps(index, indent=1))
-    print(f"  + index.json  (generated_at {generated_at})")
+    print(f"  + index.json  (generated_at {generated_at}, pseudonymised={pseudo})")
     if not ok_any:
         sys.exit("no project exported - check JIRA_SITE / JIRA_EMAIL / JIRA_TOKEN")
 

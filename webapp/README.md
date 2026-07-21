@@ -21,10 +21,17 @@ An always-on **KPI strip** at the top carries the tier's headline numbers. Statu
 bucketed into L1/L2/waiting by name (`tierOf()`), so the tier views work on both OPS's L1/L2
 workflow and ITSM's ITIL workflow without hard-coded status lists.
 
-**Every chart is drillable.** Click any KPI tile, bar, table row, analyst dot, scatter or
-sparkline point to open a drawer (`src/drill.jsx`) with the numbers behind the mark and a
-deep link into Jira's issue navigator (JQL built with `cf[<id>]` clause names so it resolves
-exactly). The chart primitives in `src/charts.jsx` take an `onPick` callback.
+**Every chart drills to the record.** Click any KPI tile, bar, table row, analyst dot,
+scatter or sparkline point to open a right-side drawer (`src/drill.jsx`) with three layers:
+(a) the aggregate — the number, its numerator/denominator, target, verdict and trend;
+(c) the **record list** — the actual Jira issues behind the mark in a dense multi-column
+table (sortable, per-row Jira link, a "only breached / only escalated" numerator toggle),
+whose footer asserts `count === numerator/denominator`; and (d) **single-record detail** —
+the full field set plus the status-transition **timeline** built from the changelog. The
+record dataset (`{project}-records.json`, baked by `app/export_pages.py` with the population
+booleans so client filters reconcile exactly) lazy-loads once per project. Each drawer also
+deep-links into Jira's issue navigator (JQL built with `cf[<id>]` clause names). The chart
+primitives in `src/charts.jsx` take an `onPick` callback.
 
 ## Two data sources, one UI
 

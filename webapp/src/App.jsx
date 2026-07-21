@@ -99,9 +99,19 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useTheme();
   const [drill, setDrill] = useState(null);   // the clicked-into detail, or null
+  const [records, setRecords] = useState({}); // {project: [...]}, lazy-loaded for drills
   const [lens, setLens] = useState(() => localStorage.getItem("ct-lens") || "overview");
   useEffect(() => { localStorage.setItem("ct-lens", lens); }, [lens]);
   const reqId = useRef(0);
+
+  // Lazy-load the record-level dataset the first time a drill opens for a project; cached.
+  useEffect(() => {
+    if (!drill || records[project]) return;
+    fetch(`${BASE}data/${project}-records.json`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => j?.records && setRecords((prev) => ({ ...prev, [project]: j.records })))
+      .catch(() => {});
+  }, [drill, project, records]);
 
   const load = useCallback((quiet = false) => {
     const id = ++reqId.current;
@@ -186,7 +196,7 @@ export default function App() {
                 : " Read-only against Jira."}
               {model.warnings?.length ? ` ${model.warnings.length} data warning(s).` : ""}
             </p>
-            <Drawer drill={drill} model={model} onClose={() => setDrill(null)} />
+            <Drawer drill={drill} model={model} records={records[project] || null} onClose={() => setDrill(null)} />
           </>
         )}
       </main>

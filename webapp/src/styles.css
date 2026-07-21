@@ -164,3 +164,38 @@ tr.clickable:hover td { background: var(--accent-dim); }
   border-top: 1px solid var(--rule); background: var(--accent); color: #fff;
   text-decoration: none; font-weight: 600; font-size: 0.85rem; }
 .drawer-jira:hover { filter: brightness(1.08); }
+
+/* ---- record-level drill (list + single-record detail) --------------------- */
+.drawer-wide { width: min(920px, 97vw); }
+.rl { margin-top: 1.1rem; border-top: 1px solid var(--rule); padding-top: 0.8rem; }
+.rl-head { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; font-size: 0.82rem; margin-bottom: 0.5rem; }
+.rl-head strong { font-size: 1rem; }
+.rl-recon { font-family: var(--mono); font-size: 0.72rem; padding: 0.1rem 0.4rem; border-radius: 4px; }
+.rl-recon.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.rl-recon.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.rl-toggle { margin-left: auto; font: inherit; font-size: 0.74rem; cursor: pointer;
+  background: none; border: 1px solid var(--rule); color: var(--muted); border-radius: 5px; padding: 0.15rem 0.5rem; }
+.rl-toggle.on, .rl-toggle:hover { border-color: var(--accent); color: var(--accent); }
+.rl-scroll { overflow: auto; max-height: 58vh; border: 1px solid var(--rule); border-radius: 6px; }
+.rl-table { border-collapse: collapse; width: 100%; font-size: 0.76rem; white-space: nowrap; }
+.rl-table th, .rl-table td { padding: 0.32rem 0.5rem; border-bottom: 1px solid var(--rule); text-align: left; }
+.rl-table th { position: sticky; top: 0; background: var(--raised); z-index: 1; font-weight: 600;
+  font-family: var(--mono); font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.rl-table td.num, .rl-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.rl-table td.grow { white-space: normal; min-width: 200px; max-width: 340px; }
+.rl-table td.mono a { font-family: var(--mono); }
+.rl-table tbody tr.clickable { cursor: pointer; }
+.rl-table tbody tr:hover td { background: var(--accent-dim); }
+.rl-table tbody tr.hi td { box-shadow: inset 3px 0 0 var(--accent); }
+.rl-table tbody tr.hi td:first-child { font-weight: 650; }
+
+.rd .rl-back { font: inherit; font-size: 0.78rem; cursor: pointer; background: none;
+  border: 1px solid var(--rule); color: var(--muted); border-radius: 5px; padding: 0.15rem 0.55rem; margin-bottom: 0.7rem; }
+.rd .rl-back:hover { border-color: var(--accent); color: var(--accent); }
+.rd-sum { font-size: 1.02rem; font-weight: 600; margin-bottom: 0.8rem; line-height: 1.3; }
+.rd-timeline { list-style: none; margin: 0.4rem 0 0; padding: 0; border-left: 2px solid var(--rule); }
+.rd-timeline li { padding: 0.2rem 0 0.2rem 0.7rem; font-size: 0.82rem; position: relative; }
+.rd-timeline li::before { content: ""; position: absolute; left: -5px; top: 0.55rem; width: 7px; height: 7px;
+  border-radius: 50%; background: var(--accent); }
+.rd-when { font-family: var(--mono); font-size: 0.68rem; color: var(--muted); margin-right: 0.5rem; }
+.drawer-jira.inline { margin-top: 1rem; border-top: none; border-radius: 6px; }

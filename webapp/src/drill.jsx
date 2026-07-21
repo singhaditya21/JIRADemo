@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Sparkline, Bars } from "./charts.jsx";
 
 // Drill-down detail. Clicking any chart element opens this drawer with the numbers behind
@@ -8,8 +8,9 @@ import { Sparkline, Bars } from "./charts.jsx";
 const F = {
   tower: "cf[10042]", tier: "cf[10043]", channel: "cf[10045]",
   impact: "cf[10004]", urgency: "cf[10044]", reopened: "cf[10052]",
-  resSla: "cf[10051]", respSla: "cf[10050]", escReason: "cf[10046]",
+  resSla: "cf[10051]", respSla: "cf[10050]", escReason: "cf[10046]", kbChecked: "cf[10047]",
 };
+const KB_NONE = "Yes - none found";
 
 const f1 = (v) => (v == null ? "—" : (Math.round(v * 10) / 10).toFixed(1));
 const pct = (v) => (v == null ? "—" : f1(v) + "%");
@@ -186,12 +187,12 @@ function detail(d, model) {
     }
     case "reason": {
       return {
-        title: `Escalation reason`,
-        jql: `project = ${P} AND ${F.tier} = L2 AND ${F.escReason} = ${q(d.reason)}`,
+        title: `KB gap by reason`,
+        jql: `project = ${P} AND ${F.tier} = L2 AND ${F.escReason} = ${q(d.reason)} AND ${F.kbChecked} = ${q(KB_NONE)}`,
         body: <>
           <div className="drill-big tnum">{d.n}</div>
-          <KV rows={[["Reason", d.reason], ["Escalations", d.n]]} />
-          <p className="drill-note">Recurring reasons with no KB article are the ones to document first — that is what stops L1 escalating them.</p>
+          <KV rows={[["Reason", d.reason], ["Escalations with no KB article", d.n]]} />
+          <p className="drill-note">These are escalations for this reason that found no KB article — the ones to document first, because that is what stops L1 escalating them again.</p>
         </>,
       };
     }
@@ -215,24 +216,172 @@ function detail(d, model) {
   }
 }
 
-export function Drawer({ drill, model, onClose }) {
+// ---- record layer: which records sit behind a mark, and how they reconcile --------------
+// Booleans on each record encode the same population rules app/analytics uses, so a filter
+// on them reconciles with the aggregate's numerator/denominator (roadmap Part III).
+const CLOSED_DEN = (r) => r.counts_as_closed && !r.is_problem;
+const slaVal = (r, kind) => (kind === "resolution" ? r.resolution_sla : r.response_sla);
+
+function recordSpec(d, model) {
+  const sb = model.scoreboard || {};
+  switch (d.type) {
+    case "metric": {
+      const M = {
+        ftr_pct: { pred: CLOSED_DEN, hi: (r) => r.counts_as_ftr, hiLab: "first-time-resolved", reconcile: sb.ftr_pct?.den, windowed: true },
+        reopen_pct: { pred: CLOSED_DEN, hi: (r) => r.is_reopened, hiLab: "reopened", reconcile: sb.reopen_pct?.den, windowed: true },
+        escalation_pct: { pred: () => true, hi: (r) => r.is_escalated, hiLab: "escalated to L2", reconcile: sb.escalation_pct?.den, windowed: true },
+        sla_pct: { pred: (r) => ["Met", "Breached"].includes(r.resolution_sla), hi: (r) => r.resolution_sla === "Breached", hiLab: "breached", reconcile: sb.sla_pct?.den, windowed: true },
+        response_pct: { pred: (r) => ["Met", "Breached"].includes(r.response_sla), hi: (r) => r.response_sla === "Breached", hiLab: "breached", reconcile: sb.response_pct?.den, windowed: true },
+        aged_14d: { pred: (r) => r.is_open && r.age_days >= 14, windowed: false, reconcile: null },
+      };
+      return M[d.key] || null;
+    }
+    case "tower": return { pred: (r) => r.tower === d.row.tower, windowed: true, reconcile: d.row.volume };
+    case "channel": return { pred: (r) => r.intake === d.row.channel, windowed: true, reconcile: d.row.n };
+    case "analyst": return { pred: (r) => r.l1_analyst === d.p.analyst, hi: (r) => r.is_escalated, hiLab: "escalated", windowed: true, reconcile: null };
+    case "statusgroup": {
+      const bs = Object.fromEntries((model.ageing_by_status?.by_status || []).map(([s, n]) => [s, n]));
+      const target = d.statuses.reduce((a, s) => a + (bs[s] || 0), 0);
+      return { pred: (r) => r.is_open && d.statuses.includes(r.status), windowed: false, reconcile: target };
+    }
+    case "kbtower": return { pred: (r) => r.is_escalated && r.kb_gap && r.tower === d.label, windowed: true, reconcile: d.value };
+    case "kbgap": return { pred: (r) => r.is_escalated && r.kb_gap, windowed: true, reconcile: d.gap };
+    case "reason": return { pred: (r) => r.is_escalated && r.kb_gap && r.escalation_reason === d.reason, windowed: true, reconcile: d.n };
+    case "sla": return { pred: (r) => ["Met", "Breached"].includes(slaVal(r, d.kind)), hi: (r) => slaVal(r, d.kind) === "Breached", hiLab: "breached", windowed: true, reconcile: null };
+    case "ageing": {
+      const m = /(\d+)\s*[–-]\s*(\d+)/.exec(d.b.label), gt = /(?:>|over)\s*(\d+)/i.exec(d.b.label);
+      const pred = m ? (r) => r.is_open && r.age_days >= +m[1] && r.age_days < +m[2]
+        : gt ? (r) => r.is_open && r.age_days >= +gt[1] : (r) => r.is_open;
+      return { pred, windowed: false, reconcile: d.b.n };
+    }
+    default: return null;   // week, ageStatus — aggregate-only
+  }
+}
+
+function filterRecords(records, spec, model) {
+  const ws = model.window_start_ts;
+  let rows = spec.windowed && ws != null ? records.filter((r) => r.reported_ts != null && r.reported_ts >= ws) : records;
+  return rows.filter(spec.pred);
+}
+
+const COLUMNS = [
+  { k: "key", h: "Key", cls: "mono", link: true },
+  { k: "summary", h: "Summary", grow: true },
+  { k: "issue_type", h: "Type" },
+  { k: "status", h: "Status" },
+  { k: "tier", h: "Tier" },
+  { k: "tower", h: "Tower" },
+  { k: "priority", h: "Priority" },
+  { k: "l1_analyst", h: "L1" },
+  { k: "age_days", h: "Age", num: true, fmt: (v) => (v == null ? "" : Math.round(v)) },
+  { k: "resolution_sla", h: "Res SLA" },
+  { k: "escalation_reason", h: "Esc reason" },
+  { k: "kb_checked", h: "KB checked" },
+  { k: "reopened", h: "Reopen" },
+];
+
+function RecordList({ rows, spec, loading, onPick }) {
+  const [numOnly, setNumOnly] = useState(false);
+  const hiCount = spec.hi ? rows.filter(spec.hi).length : null;
+  const shown = numOnly && spec.hi ? rows.filter(spec.hi) : rows;
+  return (
+    <div className="rl">
+      <div className="rl-head">
+        <span><strong className="tnum">{rows.length}</strong> record{rows.length === 1 ? "" : "s"}</span>
+        {spec.reconcile != null && (
+          <span className={"rl-recon " + (rows.length === spec.reconcile ? "ok" : "warn")}>
+            {rows.length === spec.reconcile ? `matches ${spec.reconcile} ✓` : `≠ expected ${spec.reconcile}`}
+          </span>
+        )}
+        {spec.hi && (
+          <button className={"rl-toggle" + (numOnly ? " on" : "")} onClick={() => setNumOnly((v) => !v)}>
+            {numOnly ? "show all" : `only ${spec.hiLab} (${hiCount})`}
+          </button>
+        )}
+      </div>
+      {loading ? <div className="state">loading records …</div> : (
+        <div className="rl-scroll">
+          <table className="rl-table">
+            <thead><tr>{COLUMNS.map((c) => <th key={c.k} className={c.num ? "num" : ""}>{c.h}</th>)}</tr></thead>
+            <tbody>
+              {shown.map((r) => (
+                <tr key={r.key} className={"clickable" + (spec.hi && spec.hi(r) ? " hi" : "")} onClick={() => onPick(r)}>
+                  {COLUMNS.map((c) => (
+                    <td key={c.k} className={(c.num ? "num " : "") + (c.cls || "") + (c.grow ? " grow" : "")}>
+                      {c.link ? <a href={r.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{r.key}</a>
+                        : c.fmt ? c.fmt(r[c.k]) : (r[c.k] ?? "")}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RecordDetail({ record, onBack }) {
+  const fields = [
+    ["Type", record.issue_type], ["Status", record.status], ["Tier", record.tier],
+    ["Tower", record.tower], ["Priority", record.priority], ["Impact", record.impact],
+    ["Urgency", record.urgency], ["Channel", record.intake],
+    ["L1 analyst", record.l1_analyst], ["L2 analyst", record.l2_analyst],
+    ["Reported", record.reported_at ? new Date(record.reported_at).toLocaleString() : null],
+    ["Age (days)", record.age_days != null ? Math.round(record.age_days) : null],
+    ["Response SLA", record.response_sla], ["Resolution SLA", record.resolution_sla],
+    ["Escalation reason", record.escalation_reason], ["KB checked", record.kb_checked],
+    ["Reopened", record.reopened], ["Root cause", record.root_cause], ["Resolution", record.resolution_code],
+  ].filter(([, v]) => v != null && v !== "");
+  const hops = (record.timeline || []).filter((c) => c.field === "status");
+  return (
+    <div className="rd">
+      <button className="rl-back" onClick={onBack}>← records</button>
+      <div className="rd-sum">{record.summary}</div>
+      <KV rows={fields} />
+      {hops.length > 0 && (
+        <>
+          <p className="drill-note">Status timeline — {record.changelog_hops} changes in history:</p>
+          <ol className="rd-timeline">
+            {hops.map((c, i) => (
+              <li key={i}><span className="rd-when">{c.at ? new Date(c.at).toLocaleDateString() : ""}</span>{c.from} <b>→</b> {c.to}</li>
+            ))}
+          </ol>
+        </>
+      )}
+      <a className="drawer-jira inline" href={record.url} target="_blank" rel="noreferrer">Open {record.key} in Jira ↗</a>
+    </div>
+  );
+}
+
+export function Drawer({ drill, model, records, onClose }) {
+  const [sel, setSel] = useState(null);
+  useEffect(() => { setSel(null); }, [drill]);
   useEffect(() => {
     if (!drill) return;
-    const onKey = (e) => e.key === "Escape" && onClose();
+    const onKey = (e) => e.key === "Escape" && (sel ? setSel(null) : onClose());
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [drill, onClose]);
+  }, [drill, onClose, sel]);
   if (!drill) return null;
   const { title, body, jql: clause } = detail(drill, model);
+  const spec = recordSpec(drill, model);
+  const rows = spec && records ? filterRecords(records, spec, model) : null;
   return (
     <div className="drawer-overlay" onClick={onClose}>
-      <aside className="drawer" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
+      <aside className={"drawer" + (spec ? " drawer-wide" : "")} onClick={(e) => e.stopPropagation()}
+        role="dialog" aria-modal="true" aria-label={title}>
         <header className="drawer-head">
-          <h3>{title}</h3>
+          <h3>{sel ? sel.key : title}</h3>
           <button className="drawer-x" onClick={onClose} aria-label="Close">✕</button>
         </header>
-        <div className="drawer-body">{body}</div>
-        {clause && (
+        <div className="drawer-body">
+          {sel
+            ? <RecordDetail record={sel} onBack={() => setSel(null)} />
+            : <>{body}{spec && <RecordList rows={rows || []} spec={spec} loading={!records} onPick={setSel} />}</>}
+        </div>
+        {!sel && clause && (
           <a className="drawer-jira" href={jira(model.site, clause)} target="_blank" rel="noreferrer">
             Open matching issues in Jira ↗
           </a>

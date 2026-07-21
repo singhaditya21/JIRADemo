@@ -346,8 +346,8 @@ export function EscalationReasons({ model, open }) {
   const rows = (model.kb?.by_reason || []).map(([reason, n]) => ({ label: reason, value: n, _r: reason }));
   return (
     <div className="panel span-2">
-      <h2>Why work escalates</h2>
-      <p className="why">The reasons L1 hands work to L2. The top reasons are your KB backlog — write those articles first. <span className="hint">Click a reason.</span></p>
+      <h2>KB gaps by reason</h2>
+      <p className="why">Escalations that found no KB article, grouped by why they escalated — the KB backlog in priority order, biggest first. Write these to stop L1 escalating them again. <span className="hint">Click a reason.</span></p>
       <Bars rows={rows} barH={22} onPick={(r) => open({ type: "reason", reason: r._r, n: r.value })} />
     </div>
   );
