@@ -105,9 +105,13 @@ accountable rather than a free choice under pressure.
 
 ## 3. The seven automation rules
 
-**There is no public Cloud REST API for automation rules** (`/rest/api/3/automation/rules`
-→ 404, verified). These are built in the rule builder and version-controlled through
-Automation's JSON export/import. Recipes below are exact.
+**All seven are live on OPS and ENABLED** (verified 2026-07-21). There is no *public* Cloud
+REST API for automation (`/rest/api/3/automation/rules` → 404), but the Automation
+**internal** API takes create + enable, so they are built and reconciled in code by
+`automation/build_rules.py` — not hand-built in the UI. The recipes below are the design;
+`automation/README.md` records what is actually on the instance, including the two places a
+rule uses a verified substitute for a sub-shape that stayed UI-only (rule 1 fires on
+**create** rather than on field-change; rule 3 posts a **comment** rather than an email).
 
 ### Rule 1 — Derive priority (the anti-inflation rule)
 - **Trigger:** Field value changed → `Impact` or `Urgency`

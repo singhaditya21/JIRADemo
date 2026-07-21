@@ -219,7 +219,7 @@ that form rules the path out for every method.
 | Capability | Status | Evidence |
 |---|---|---|
 | **Workflow validators** (the escalation gate) | 🔴 **UI-only** | `workflows/create` rejects `system:field-required` — *"Rule cannot be applied to this type or is unsupported"*. Four payload variants tried; the same payload succeeds with validators removed. |
-| **Automation rules** | 🔴 **UI-only** | No public Cloud REST API — `/rest/api/3/automation/rules` → 404. Version-control via Automation's JSON export/import. |
+| **Automation rules** | 🟡 **Internal API — built & enabled** | The *public* `/rest/api/3/automation/rules` → 404, but the Automation **internal** API (`.../pro/rest/{projectId}/rule`) takes create + enable. All seven rules are live and ENABLED via `automation/build_rules.py`; component value schemas were discovered by round-trip (`automation/schema/component-schemas.md`). Two sub-shapes (field-changed per-field scoping, send-email recipients) resolve entities server-side and stayed UI-only, so two rules use verified equivalents. |
 | **SLA metrics and goals** | 🔴 **UI-only** | A 56-path sweep across four API roots returned **zero** non-404 hits. POST and PUT probed separately. Project settings → SLAs. |
 | **SLA calendars** | 🟢 **REST-writable** | `/rest/workinghours/1/api/calendar` supports full CRUD. Confirmed create, update and delete. |
 | **JSM agent queues — create & update** | 🟢 **REST-writable** | `POST`/`PUT /rest/servicedesk/1/servicedesk/{projectKey}/queues` → 200. Not the public `servicedeskapi` route, which is `Allow: GET` only. All 12 queues were built this way. |

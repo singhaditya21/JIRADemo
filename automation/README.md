@@ -1,49 +1,77 @@
 # Automation rules
 
-Jira Cloud exposes **no public REST API for automation rules** —
-`/rest/api/3/automation/rules` returns 404 (verified 2026-07-20, `CLAIMS.md` #6).
-They are built in the rule builder and version-controlled through Automation's own
-JSON export/import.
+**All seven rules are live on `singhaditya21.atlassian.net` (project OPS) and ENABLED**
+(verified 2026-07-21, `CLAIMS.md` #101). They are created and reconciled by
+[`build_rules.py`](build_rules.py); run it to rebuild them on any instance.
 
-## What these files are
+```bash
+source your-env-file                 # JIRA_SITE, JIRA_EMAIL, JIRA_TOKEN
+python3 automation/build_rules.py --dry-run
+python3 automation/build_rules.py                 # idempotent: skips rules that already exist
+python3 automation/build_rules.py --state DISABLED # build them off (e.g. to inspect before enabling)
+```
 
-`rule-1` … `rule-7` are **specifications**, not verified Jira exports. Each maps
-one-to-one onto the rule builder: trigger, conditions, actions, in order.
-
-**They have not been round-tripped through Jira's import.** Authoring a file that
-claims to be a Jira export without ever having exported one would be guessing at a
-format, and a file that fails on import is worse than no file. The honest workflow:
-
-1. Build the rule in the UI from the spec (each takes a few minutes).
-2. **Export it from Automation** — Project settings → Automation → ⋯ → Export.
-3. Commit the real export here, replacing the spec.
-
-After step 3 this directory becomes genuinely reusable across environments. Until
-then it is precise documentation, and labelled as such.
-
-## Build order
-
-Rules **5 and 6 first.** Rule 5 (SLA pause) is what makes the attainment report
-defensible; without it every ticket waiting on a customer reads as a failure.
-Rule 6 (reopen handling) is what makes first-time resolution honest; without it a
-premature close reappears as a new ticket and flatters the number.
-
-The other five improve the tower. Those two are what make its measurements true.
-
-| # | Rule | Build order | Why |
+| # | Rule | Trigger | What it does |
 |---|---|---|---|
-| 5 | SLA pause and resume | **1st** | Makes SLA attainment trustworthy |
-| 6 | Reopen handling | **2nd** | Makes first-time resolution honest |
-| 1 | Derive priority | 3rd | Ends priority inflation |
-| 2 | Route on escalation | 4th | Ticket lands in a tower queue, not on a person |
-| 3 | Major incident alert | 5th | A P1 that waits in a queue is not a P1 |
-| 4 | SLA breach warning at 75% | 6th | Warn while it can still be saved |
-| 7 | Auto-close after resolution | 7th | Stops Resolved becoming a second backlog |
+| 1 | Derive priority from Impact × Urgency | work item created | Sets Priority from the 3×3 matrix (9 branches, gated on Impact **and** Urgency) |
+| 2 | Reopen handling | Resolved → Triage | Sets Reopened = Yes, Support Tier = L1 |
+| 3 | Major incident alert | work item created, Priority = P1 - Critical | Comments to engage the Major Incident Manager |
+| 4 | SLA breach warning | scheduled, daily 08:00 | Comments on open P1/P2 tickets that have gone quiet |
+| 5 | SLA pause on Pending | → Pending Customer / Pending Vendor | Sets Resolution SLA = Paused |
+| 6 | Route on escalation | → Escalated to L2 | Sets Support Tier = L2 |
+| 7 | Auto-close resolved tickets | scheduled, daily 02:00 | Transitions week-old Resolved tickets to Closed |
+
+## How they were built — no public API, no working UI capture, so: round-trip discovery
+
+Jira Cloud exposes **no public REST API** for automation (`/rest/api/3/automation/rules`
+→ 404). The Automation UI drives an **internal** API the token *can* reach:
+
+```
+POST .../pro/rest/{projectId}/rules   # list
+POST .../pro/rest/{projectId}/rule    # create  (needs the FULL rule wrapper, not a minimal envelope)
+```
+
+The hard part was the component **value schemas**. The documented source is the Flows
+builder, but it freezes the CDP-driven renderer on save, so click-through capture is
+unreliable. They were instead discovered by **empirical round-trip**: POST a rule with a
+candidate `value`, `GET` it back to read the canonical shape the server normalises to,
+then `DELETE` the probe. Every shape is written down in
+[`schema/component-schemas.md`](schema/component-schemas.md); the real captured wrapper is
+[`schema/example-transition-edit.rule.json`](schema/example-transition-edit.rule.json).
+
+Two gotchas worth knowing:
+
+- **ENABLED validation is stricter than DISABLED.** A rule round-trips fine while disabled
+  but is rejected on enable unless the entity references resolve: the created trigger needs
+  `eventKey`/`issueEvent` populated, the scheduled trigger needs `schedule.method:"CRON"`,
+  a **priority** condition compares by **ID** while a **select** field compares by **NAME**.
+- **Two sub-shapes stayed UI-only** — the field-changed trigger's per-field `fields[]` and
+  the outgoing-email `to[]` recipients both resolve entities server-side and 500 on every
+  constructed shape. So rule 1 fires on **create** (not field-change) and rule 3 posts an
+  **in-issue comment** (not an email). Both are honest working substitutes; swapping in the
+  field-changed trigger / Send-email action is a one-step edit in the UI.
+
+## Enable safety and snapshot drift
+
+The five event-triggered rules (1, 2, 3, 5, 6) only fire on *future* events, so enabling
+them never touches existing tickets. The two **scheduled** rules (4, 7) do act on the data
+when they run. Their JQL is written to match **zero** freshly-seeded rows now (everything
+was `updated` today, so `updated <= -Nd` selects nothing) — so enabling them preserved the
+seeded snapshot — but they **will** drift it over the coming days: auto-close closes the
+Resolved tickets about a week out, the breach warning starts commenting tomorrow
+(`CLAIMS.md` #104, #105). This was explicitly authorised. To restore a clean snapshot before
+a demo, re-run the seed (`python3 -m fixtures.reset` + reseed) — it resets every `updated`
+to today.
+
+## The `rule-N-*.json` files
+
+These remain human-readable **specifications** (trigger → conditions → actions, in order),
+kept for review and for building the rules by hand. `build_rules.py` is the source of
+truth for what is actually on the instance; the specs are documentation.
 
 ## Field IDs
 
-Referenced by these specs, live on `singhaditya21.atlassian.net` — full list in
-[SCHEMA.md](../SCHEMA.md).
+Live on `singhaditya21.atlassian.net` — full list in [SCHEMA.md](../SCHEMA.md).
 
 | Field | ID |
 |---|---|
@@ -56,87 +84,3 @@ Referenced by these specs, live on `singhaditya21.atlassian.net` — full list i
 | Reopened | `customfield_10052` |
 | Reported At | `customfield_10057` |
 | Resolved At | `customfield_10060` |
-
-
-## Update 2026-07-20 — the API is reachable after all
-
-The public `/rest/api/3/automation/rules` returns 404, but the Automation UI drives an
-**internal** API that the token *can* reach:
-
-```
-POST /gateway/api/automation/internal-api/jira/{cloudId}/pro/rest/{projectId}/rules   # list  -> 200
-POST /gateway/api/automation/internal-api/jira/{cloudId}/pro/rest/{projectId}/rule    # create -> exists (400 on bad body)
-```
-
-The create envelope is known (CLAIMS #77):
-
-```json
-{ "ruleConfigBean": {
-    "name": "...", "state": "ENABLED|DISABLED",
-    "authorAccountId": "<accountId>",
-    "trigger": { "component": "TRIGGER", "type": "<type>", "value": null, "children": [] },
-    "components": [ /* conditions and actions */ ] } }
-```
-
-**What is still missing:** the exact `type` strings and `value` schemas for each trigger,
-condition and action. Those were **not** reverse-engineered and are **not** guessed here
-(CLAIMS #78). The reliable way to get them is to build ONE rule by hand in the UI, then
-`GET` it back over the internal API — the same technique that corrected the "validator is
-UI-only" mistake (CLAIMS #8). Once one real rule is captured, the six recipe files below can
-be turned into real create payloads and posted.
-
-The `rule-N-*.json` files remain **specifications**, not verified exports.
-
-
-## Update 2026-07-20 (later) — verified triggers, and the one manual step that unblocks the rest
-
-Verified without guessing (CLAIMS #87-90):
-
-- **Trigger types** (from `ruleTemplates`): `jira.issue.field.changed`,
-  `jira.issue.event.trigger:transitioned`, `jira.jql.scheduled`,
-  `jira.issue.event.trigger:created`, `jira.manual.trigger.issue`.
-- **`jira.issue.comment`** is a confirmed action type.
-- **Component value schemas are NOT obtainable over the API** — no descriptor endpoint
-  exists, and the create endpoint's error channel is too noisy to walk. They live in the
-  UI bundle.
-- The new **Flows builder cannot be driven by the automation tooling** (it never idles).
-
-### The unblock — 2 minutes of human clicking, then fully scripted
-
-1. In the UI, build **one** rule that uses the components the seven need — e.g. trigger
-   *Issue transitioned* → action *Edit issue field* + *Add comment* — and save it.
-2. Then it can be read back over the proven internal endpoint:
-   `GET /gateway/api/automation/internal-api/jira/{cloudId}/pro/rest/10034/rule/{id}`
-   which returns the canonical `ruleConfigBean` with real `value` schemas.
-3. With one real example per component, the six recipe files below become real create
-   payloads and are POSTed **disabled** (so they never rewrite the 420 seeded tickets),
-   then enabled deliberately at go-live.
-
-The `rule-N-*.json` files remain **specifications**, not verified exports, until step 1 is done.
-
-## Update 2026-07-20 (final) — the rules are being built
-
-The blocker is solved. Two facts unlocked it, both found the hard way:
-
-1. **A flow only persists once it has a name.** Earlier scripted saves silently did
-   nothing because the required name field was never filled — the rule count stayed 0.
-2. **The create payload needs the FULL rule wrapper** (`ruleScope`, `ruleHome`, `actor`,
-   `writeAccessType`, …), not the minimal envelope. A minimal body returns the unhelpful
-   "systems are unavailable". So we template from a real captured rule.
-
-`schema/example-transition-edit.rule.json` is a real rule read back over the internal API.
-It carries the canonical value schemas for the `jira.issue.event.trigger:transitioned`
-trigger and the `jira.issue.edit` action.
-
-`build_rules.py` templates from it and creates, **disabled**:
-
-- **Reopen handling** — set Reopened=Yes, Support Tier=L1
-- **SLA pause on Pending** — set Resolution SLA=Paused
-- **Route on escalation** — set Support Tier=L2
-
-Still to build (each needs one more UI capture → GET → a line in `build_rules.py`):
-derive-priority (field-changed trigger + if-else), major-incident alert (send-notification),
-breach warning (scheduled trigger + comment), auto-close (scheduled trigger + transition).
-
-All rules are created **DISABLED**. Enable them deliberately at go-live — an enabled
-"derive priority" rule would overwrite a manually-set priority.
