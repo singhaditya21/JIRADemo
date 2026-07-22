@@ -1,1 +1,1 @@
-{"project":"ITSM","window_days":90,"points":[{"date":"2026-07-21","volume":420,"ftr_pct":64.33,"escalation_pct":37.62,"reopen_pct":3.33,"sla_pct":84.33,"response_pct":82.06,"aged_14d":105}]}
+{"project":"ITSM","window_days":90,"points":[{"date":"2026-07-21","volume":420,"ftr_pct":64.33,"escalation_pct":37.62,"reopen_pct":3.33,"sla_pct":84.33,"response_pct":82.06,"aged_14d":105},{"date":"2026-07-22","volume":420,"ftr_pct":64.33,"escalation_pct":37.62,"reopen_pct":3.33,"sla_pct":84.33,"response_pct":82.06,"aged_14d":106}]}
