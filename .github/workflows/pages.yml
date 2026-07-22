@@ -74,20 +74,21 @@ jobs:
             python3 -m app.sfc_seed --n 64
           fi
 
-      - name: Persist snapshot history
-        # The bake appended today's KPI point to webapp/public/data/*-history.json. Commit it
-        # back so it accumulates run-over-run (the deployed artifact already has today's point;
-        # this is only about persistence). Date-keyed + no run timestamp, so a same-day re-run
-        # is a no-op diff and nothing is committed. [skip ci] + GITHUB_TOKEN pushes don't
-        # re-trigger the workflow, so there is no loop.
+      - name: Persist snapshot history + frozen baselines
+        # The bake appended today's KPI point to *-history.json and (first-run-only) froze
+        # *-baseline.json. Commit both back so they accumulate/persist run-over-run. History is
+        # date-keyed + no run timestamp, so a same-day re-run is a no-op diff; a baseline is
+        # write-once (the exporter skips it once the file exists), so this commits it exactly
+        # once — that is what makes SFC's baseline actually frozen rather than re-frozen every
+        # bake. [skip ci] + GITHUB_TOKEN pushes don't re-trigger the workflow, so there is no loop.
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add webapp/public/data/*-history.json
+          git add webapp/public/data/*-history.json webapp/public/data/*-baseline.json
           if git diff --cached --quiet; then
-            echo "snapshot history unchanged — nothing to commit"
+            echo "snapshot history + baselines unchanged — nothing to commit"
           else
-            git commit -m "Snapshot history $(date -u +%F) [skip ci]"
+            git commit -m "Snapshot history + baselines $(date -u +%F) [skip ci]"
             git push origin HEAD:${GITHUB_REF_NAME}
           fi
 

@@ -13,7 +13,9 @@ import { KpiStrip, PairingPanel, Analysts, KBGap, Towers, Intake, Ageing,
   SlaTypePriority, RequestAging, ApprovalAging, RCACycle, CSATvsSLA, CSATByTower,
   QueueDepth, ChangeSuccess, ProblemBacklog, DQBoard,
   HeadlineBanner, PilotProgress, AtRiskToday, RuleHealth, DeflectionFunnel,
-  DeliveryPreviewBanner, SFCKpi, StageFunnel, DeployMatrix, ConfigHealthBoard, AgentLedger, CABGate } from "./panels.jsx";
+  DeliveryPreviewBanner, SFCKpi, StageFunnel, DeployMatrix, ConfigHealthBoard, AgentLedger, CABGate,
+  SFCTrend, DeployFailureByOrg, SFCLeadWip, SFCOutcomes,
+  MockNlqAnswer, MockCsatFeed, MockBreachRisk, MockMultiInstance, MockOutcomes18mo } from "./panels.jsx";
 import { Drawer } from "./drill.jsx";
 
 const PROJECTS = ["OPS", "ITSM", "SFC"];
@@ -40,6 +42,14 @@ function lensPanels(lens, project, model, open, records, history, baseline) {
     <ConfigHealthBoard key="chb" {...R} />,
     <CABGate key="cab" {...R} />,
     <AgentLedger key="led" {...R} />,
+    <DeployFailureByOrg key="dfo" {...R} />,
+    <SFCLeadWip key="lw" {...R} />,
+    <SFCTrend key="strend" history={history} />,
+    <SFCOutcomes key="sout" model={model} records={records} baseline={baseline} />,
+    // mocks compatible with the SFC record shape (is_done/priority/age_days), badged MOCK
+    <MockBreachRisk key="mbr" {...R} />,
+    <MockMultiInstance key="mmi" {...R} />,
+    <MockOutcomes18mo key="mo18" {...R} />,
   ];
   if (lens === "L1") return [
     <InsightsFeed key="ins" {...P} />,
@@ -110,6 +120,13 @@ function lensPanels(lens, project, model, open, records, history, baseline) {
     <Intake key="in" {...P} />,
     <Ageing key="ag" {...P} />,
     <AgeingByStatus key="abs" {...P} />,
+    // Labs — clearly-badged MOCKS of features that need systems this demo doesn't have
+    // (a runtime LLM, a survey tool, a trained model, multiple instances, 18 months).
+    <MockNlqAnswer key="mnlq" {...R} />,
+    <MockBreachRisk key="mbr" {...R} />,
+    <MockCsatFeed key="mcsat" {...R} />,
+    <MockMultiInstance key="mmi" {...R} />,
+    <MockOutcomes18mo key="mo18" {...R} />,
     <IntegrityStrip key="int" {...P} />,
     <InvariantFooter key="inv" {...P} />,
   ];

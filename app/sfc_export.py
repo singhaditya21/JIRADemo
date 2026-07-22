@@ -315,21 +315,74 @@ def _model(records, days, now, generated_at):
 
 
 # ---------------------------------------------------------------------------
-# entry point (called by app.export_pages)
+# snapshot history + frozen baseline (parity with app.export_pages for OPS/ITSM)
 # ---------------------------------------------------------------------------
 
-def export_sfc(j, out_dir, day_windows, generated_at, now=None):
-    """Bake SFC-{days}.json + SFC-records.json from the live SFC project.
+HISTORY_WINDOW = 90     # the canonical window the trend tracks
+HISTORY_CAP = 180       # keep ~6 months of daily points
 
-    Returns (record_count, [window_file_names]). Raises if the project is absent so
-    the caller can record the error and fall back (e.g. keep the preview seed).
-    """
+
+def _sfc_point(records, now, generated_at):
+    """A dated snapshot of the headline SFC KPIs over the 90-day window. Date-keyed and
+    rounded, so two bakes on one day produce a byte-identical point (no CI churn)."""
+    cut = (now - timedelta(days=HISTORY_WINDOW)).timestamp()
+    win = [r for r in records if r["reported_ts"] and r["reported_ts"] >= cut]
+    ods = [d for r in win for d in r["org_deploys"]]
+    total = len(ods) or 1
+    deployed = sum(1 for d in ods if d.get("deploy_state") == "Deployed")
+    healthy = sum(1 for d in ods if d.get("config_health") == "Healthy")
+    lead = sorted(
+        (datetime.fromisoformat(r["resolved_at"]) - datetime.fromisoformat(r["reported_at"]))
+        .total_seconds() / 86400.0
+        for r in win if r["resolved_at"] and r["reported_at"])
+    return {"date": generated_at[:10], "volume": len(win),
+            "deploy_success_pct": round(deployed / total * 100, 2),
+            "healthy_pct": round(healthy / total * 100, 2),
+            "lead_time_d": round(lead[len(lead) // 2], 2) if lead else None}
+
+
+def _append_history(out_dir, point):
+    path = out_dir / "SFC-history.json"
+    hist = []
+    if path.exists():
+        try:
+            doc = json.loads(path.read_text())
+            hist = doc.get("points", []) if isinstance(doc, dict) else (doc or [])
+        except (ValueError, OSError):
+            hist = []
+    hist = [p for p in hist if p.get("date") != point["date"]]
+    hist.append(point)
+    hist.sort(key=lambda p: p.get("date") or "")
+    hist = hist[-HISTORY_CAP:]
+    path.write_text(json.dumps({"project": PROJECT_KEY, "window_days": HISTORY_WINDOW,
+                                "points": hist}, separators=(",", ":"), default=str))
+    return len(hist)
+
+
+def _freeze_baseline(out_dir, point, generated_at):
+    """Write the first full bake as the pilot baseline, once, never overwritten."""
+    path = out_dir / "SFC-baseline.json"
+    if path.exists():
+        return False
+    base = {"frozen_at": generated_at, **{k: point.get(k) for k in
+            ("deploy_success_pct", "healthy_pct", "lead_time_d", "volume")}}
+    path.write_text(json.dumps({"project": PROJECT_KEY, "baseline": base},
+                               separators=(",", ":"), default=str))
+    return True
+
+
+# ---------------------------------------------------------------------------
+# fetch (reused by app.export_pages AND app.server) + entry point
+# ---------------------------------------------------------------------------
+
+def fetch_sfc_records(j, now=None):
+    """Read the SFC project once and map it to the lens's record schema. Pure of file
+    I/O so the near-real-time backend (app.server) can serve the same rows. Returns
+    (records, now)."""
     now = now or datetime.now(timezone.utc)
     F = resolve_fields(j)
     raw = _fetch_all(j, F)
-
-    deploys_by_parent = {}
-    requests = []
+    deploys_by_parent, requests = {}, []
     for it in raw:
         itype = ((it.get("fields") or {}).get("issuetype") or {}).get("name")
         if itype == SUBTASK_TYPE:
@@ -338,8 +391,23 @@ def export_sfc(j, out_dir, day_windows, generated_at, now=None):
                 deploys_by_parent.setdefault(parent, []).append(dep)
         elif itype == REQUEST_TYPE:
             requests.append(it)
-
     records = [_request_record(it, F, j.site, deploys_by_parent, now) for it in requests]
+    return records, now
+
+
+def sfc_model(records, days, now, generated_at):
+    """Public wrapper so app.server can build one window's model from fetched records."""
+    return _model(records, days, now, generated_at)
+
+
+def export_sfc(j, out_dir, day_windows, generated_at, now=None):
+    """Bake SFC-{days}.json + SFC-records.json + SFC-history.json + SFC-baseline.json
+    from the live SFC project.
+
+    Returns (record_count, [window_file_names]). Raises if the project is absent so
+    the caller can record the error and fall back (e.g. keep the preview seed).
+    """
+    records, now = fetch_sfc_records(j, now)
 
     written = []
     for days in day_windows:
@@ -353,4 +421,11 @@ def export_sfc(j, out_dir, day_windows, generated_at, now=None):
          "count": len(records), "records": records}, separators=(",", ":"), default=str))
     print("  + SFC-records.json  (%d requests, %d org-deploys)"
           % (len(records), sum(len(r["org_deploys"]) for r in records)))
+
+    # snapshot history + frozen baseline (same discipline as OPS/ITSM)
+    point = _sfc_point(records, now, generated_at)
+    n = _append_history(out_dir, point)
+    print("  + SFC-history.json  (%d point(s))" % n)
+    if _freeze_baseline(out_dir, point, generated_at):
+        print("  + SFC-baseline.json  (pilot baseline frozen)")
     return len(records), written

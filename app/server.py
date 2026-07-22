@@ -39,8 +39,9 @@ from shared import fields as FIELDS
 from app import store as S
 from app.control_tower import build_model
 from app.export_pages import _record  # reuse the EXACT bake row-builder — no drift
+from app import sfc_export as SFC       # SFC has its own schema (stages/deploys/health)
 
-PROJECTS = ("OPS", "ITSM")
+PROJECTS = ("OPS", "ITSM", "SFC")
 
 _CACHE = {}
 _LOCK = threading.Lock()
@@ -59,6 +60,13 @@ def _jira():
         return _JIRA
 
 
+def _iso_now():
+    # app.sfc_export stamps generated_at as an ISO string; the module bans Date.now-style
+    # helpers only in workflow scripts, so a plain UTC isoformat is fine here.
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
 def compute(project, days):
     """Fetch + build the aggregate model, memoised briefly so a page refresh is cheap."""
     key = ("tower", project, days)
@@ -67,14 +75,18 @@ def compute(project, days):
         hit = _CACHE.get(key)
         if hit and now - hit[0] < _TTL:
             return hit[1]
-    j, F = _jira()
-    st = S.fetch(j, project, F)
-    model = build_model(st.issues, st.now, days, project,
-                        site=st.site, pages=st.pages, warnings=list(st.warnings))
-    payload = json.loads(json.dumps(model, default=str))  # datetime -> str, once
-    payload["_meta"] = {"fetched_pages": st.pages,
-                        "field_warnings": list(F.warnings()),
-                        "generated_epoch": now}
+    j, _F = _jira()
+    if project == "SFC":
+        records, ts = SFC.fetch_sfc_records(j)
+        payload = json.loads(json.dumps(SFC.sfc_model(records, days, ts, _iso_now()), default=str))
+    else:
+        st = S.fetch(j, project, _F)
+        model = build_model(st.issues, st.now, days, project,
+                            site=st.site, pages=st.pages, warnings=list(st.warnings))
+        payload = json.loads(json.dumps(model, default=str))  # datetime -> str, once
+        payload["_meta"] = {"fetched_pages": st.pages,
+                            "field_warnings": list(_F.warnings()),
+                            "generated_epoch": now}
     with _LOCK:
         _CACHE[key] = (now, payload)
     return payload
@@ -89,8 +101,11 @@ def compute_records(project):
         if hit and now - hit[0] < _RECORDS_TTL:
             return hit[1]
     j, F = _jira()
-    st = S.fetch(j, project, F, with_changelog=True)
-    records = [_record(i, None) for i in st.issues]
+    if project == "SFC":
+        records, _ts = SFC.fetch_sfc_records(j)
+    else:
+        st = S.fetch(j, project, F, with_changelog=True)
+        records = [_record(i, None) for i in st.issues]
     payload = json.loads(json.dumps(
         {"project": project, "count": len(records),
          "generated_epoch": now, "records": records}, default=str))

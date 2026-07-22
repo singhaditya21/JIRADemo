@@ -1252,6 +1252,262 @@ export function CABGate({ model, records, open }) {
   );
 }
 
+// ==== SFC delivery — trend, bottleneck, outcomes (all REAL Jira data) =================
+
+// Deploy-success + config-health trajectory, one point per daily bake (SFC-history.json).
+export function SFCTrend({ history }) {
+  const pts = history || [];
+  if (pts.length < 2) return (
+    <div className="panel span-2"><h2>Delivery trend</h2>
+      <p className="why">Deploy-success and healthy-config trend, one point per daily bake. {pts.length ? "One point so far — the line grows as bakes accumulate." : "No history yet — the first bake seeds it."}</p>
+    </div>);
+  const first = pts[0], last = pts[pts.length - 1];
+  const d = (last.deploy_success_pct ?? 0) - (first.deploy_success_pct ?? 0);
+  return (
+    <div className="panel span-2">
+      <h2>Delivery trend <span className="why" style={{ display: "inline", margin: 0 }}>— deploy success &amp; healthy config, {pts.length} daily point(s)</span></h2>
+      <div className="donut-row" style={{ gap: "2rem", flexWrap: "wrap" }}>
+        <div><div className="mini-lab">deploy success</div>
+          <Sparkline points={pts.map((p) => p.deploy_success_pct ?? 0)} w={300} h={70} color="var(--accent)" fmt={(v) => f1(v) + "%"} />
+          <div className="tnum" style={{ fontSize: "1.1rem" }}>{pct(last.deploy_success_pct)} <span className="int-note">{d >= 0 ? "▲" : "▼"} {f1(Math.abs(d))} pts vs first</span></div>
+        </div>
+        <div><div className="mini-lab">config healthy</div>
+          <Sparkline points={pts.map((p) => p.healthy_pct ?? 0)} w={300} h={70} color="var(--ok)" fmt={(v) => f1(v) + "%"} />
+          <div className="tnum" style={{ fontSize: "1.1rem" }}>{pct(last.healthy_pct)}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Per-org deploy failure/rollback rate — where deploys break (real org_deploys).
+export function DeployFailureByOrg({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const byOrg = {};
+  for (const r of rows) for (const d of (r.org_deploys || [])) {
+    const o = d.org || "?"; (byOrg[o] = byOrg[o] || { fail: 0, total: 0 }).total++;
+    if (/failed|rolled/i.test(d.deploy_state || "")) byOrg[o].fail++;
+  }
+  const bars = Object.entries(byOrg).map(([label, v]) => ({ label, value: v.fail,
+    note: `${v.fail}/${v.total}`, color: "var(--crit)" })).sort((a, b) => b.value - a.value);
+  return (
+    <div className="panel">
+      <h2>Deploy failures by org</h2>
+      <p className="why">Failed or rolled-back deploys per target org — the fan-out a single status can't show. {records ? "" : "Loading…"} <span className="hint">Click a bar.</span></p>
+      {records && <Bars rows={bars} barH={18} fmt={(v) => v}
+        onPick={(b) => open({ type: "records", label: `Deploy failed in ${b.label}`,
+          pred: (r) => (r.org_deploys || []).some((d) => d.org === b.label && /failed|rolled/i.test(d.deploy_state || "")) })} />}
+    </div>
+  );
+}
+
+// Lead-time distribution (real reported→resolved) + where the oldest open work is stuck.
+export function SFCLeadWip({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const leadDays = rows.filter((r) => r.resolved_at).map((r) => ttrHours(r) / 24).filter((x) => x != null);
+  const open_ = rows.filter((r) => r.is_open);
+  const byStage = {};
+  for (const r of open_) { const s = r.stage || "?"; (byStage[s] = byStage[s] || []).push(r.age_days || 0); }
+  const order = ["Intake", "Build", "Review", "Deploy", "Audit"];
+  const wip = order.filter((s) => byStage[s]).map((s) => ({ stage: s, n: byStage[s].length, oldest: Math.max(...byStage[s]) }));
+  return (
+    <div className="panel span-2">
+      <h2>Lead time &amp; where work waits</h2>
+      <p className="why">Left: end-to-end lead time (reported → resolved, real dates). Right: the oldest still-open request in each stage — the bottleneck a funnel count alone can't surface. {records ? "" : "Loading…"}</p>
+      {records && (
+        <div className="donut-row" style={{ gap: "1.5rem", flexWrap: "wrap", alignItems: "flex-start" }}>
+          <div><div className="mini-lab">lead time (days), n={leadDays.length}</div>
+            <Histogram values={leadDays} bins={10} w={320} unit="d" fmt={(v) => f1(v)} /></div>
+          <div style={{ minWidth: 220 }}><div className="mini-lab">oldest open, by stage</div>
+            {wip.map((w) => (
+              <div key={w.stage} className="leg-item" style={{ justifyContent: "space-between", cursor: "pointer" }}
+                onClick={() => open({ type: "records", label: `Open in ${w.stage}`, pred: (r) => r.is_open && r.stage === w.stage })}>
+                <span>{w.stage} <span className="int-note">({w.n})</span></span>
+                <span className="tnum">{f1(w.oldest)}d</span>
+              </div>))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Outcomes vs the frozen pilot baseline (SFC-baseline.json).
+export function SFCOutcomes({ model, records, baseline }) {
+  const rows = inWindow(records, model);
+  const ods = rows.flatMap((r) => r.org_deploys || []);
+  const total = ods.length || 1;
+  const cur = {
+    deploy_success_pct: ods.filter((d) => d.deploy_state === "Deployed").length / total * 100,
+    healthy_pct: ods.filter((d) => d.config_health === "Healthy").length / total * 100,
+    volume: rows.length,
+  };
+  const base = baseline || {};
+  const cells = [
+    { k: "deploy success", cur: cur.deploy_success_pct, base: base.deploy_success_pct, unit: "%", better: "up" },
+    { k: "config healthy", cur: cur.healthy_pct, base: base.healthy_pct, unit: "%", better: "up" },
+    { k: "requests (90d)", cur: cur.volume, base: base.volume, unit: "", better: "up" },
+  ];
+  return (
+    <div className="panel span-2 integrity">
+      <h2>Outcomes vs baseline <span className="why" style={{ display: "inline", margin: 0 }}>— {base.frozen_at ? `frozen ${String(base.frozen_at).slice(0, 10)}` : "baseline freezes on first bake"}</span></h2>
+      <div className="int-row">
+        {cells.map((c, i) => {
+          const delta = (c.base != null && c.cur != null) ? c.cur - c.base : null;
+          const good = delta == null ? null : (c.better === "up" ? delta >= 0 : delta <= 0);
+          return (
+            <div key={i} className="int-cell" style={{ borderLeftColor: good == null ? "var(--muted)" : good ? "var(--ok)" : "var(--crit)" }}>
+              <span className="int-k">{c.k}</span>
+              <span className="int-v tnum">{c.unit === "%" ? pct(c.cur) : Math.round(c.cur)}</span>
+              <span className="int-note">{c.base == null ? "no baseline yet" : `was ${c.unit === "%" ? pct(c.base) : Math.round(c.base)} · ${delta >= 0 ? "▲" : "▼"} ${c.unit === "%" ? f1(Math.abs(delta)) : Math.round(Math.abs(delta))}`}</span>
+            </div>);
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ==== MOCKS — clearly-badged illustrations of features that need systems we don't have ==
+// Every panel below wears a bright MOCK badge and a caption saying so. The data is either
+// a deterministic illustration or computed from REAL records but presented in a way a real
+// (LLM / survey / predictive / multi-tenant) system would — never dressed up as live.
+export function MockBadge() { return <span className="mock-badge">MOCK</span>; }
+const hashStr = (s) => { let h = 2166136261; for (let i = 0; i < (s || "").length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967295; };
+
+// (1) LLM-answered NLQ — what "Ask the tower" would return with a real model behind it.
+// The answer is TEMPLATED from real numbers (not a live LLM), so it is honest illustration.
+export function MockNlqAnswer({ model, records }) {
+  const rows = inWindow(records, model);
+  const open_ = rows.filter((r) => r.is_open), aged = open_.filter((r) => (r.age_days || 0) > 14);
+  const byTower = {}; for (const r of rows) if (r.is_escalated) byTower[r.tower] = (byTower[r.tower] || 0) + 1;
+  const worst = Object.entries(byTower).sort((a, b) => b[1] - a[1])[0];
+  const q = "What's the biggest risk in the backlog right now, and where should we focus?";
+  const a = rows.length
+    ? `Of ${rows.length} requests in window, ${open_.length} are open and ${aged.length} have aged past 14 days — the backlog is ${aged.length > open_.length * 0.6 ? "staling, not just growing" : "mostly fresh"}. ` +
+      (worst ? `Escalations concentrate in ${worst[0]} (${worst[1]}), so that's the first place a KB or automation investment pays back. ` : "") +
+      `Recommend triaging the ${aged.length} aged items before new intake.`
+    : "Loading…";
+  return (
+    <div className="panel span-2 mock">
+      <h2>Ask the tower — AI answer <MockBadge /></h2>
+      <p className="why">What the free-text box would return with a real LLM behind it. This answer is <strong>pattern-generated from the real numbers</strong> — a static host has no runtime model, so it is an illustration, not a live LLM.</p>
+      <div className="mock-chat">
+        <div className="mock-q">“{q}”</div>
+        <div className="mock-a">{a}</div>
+      </div>
+    </div>
+  );
+}
+
+// (2) CSAT/CES survey feed — verbatims a real survey tool would collect. Scores are the
+// existing modelled CSAT; the verbatims are a deterministic mock bank keyed by ticket.
+const VERBATIMS = {
+  5: ["Fixed fast and explained what happened.", "Exactly what I needed, no back-and-forth.", "Genuinely impressed with the turnaround."],
+  4: ["Sorted in the end, took a little chasing.", "Good outcome, minor delay.", "Happy overall."],
+  3: ["Resolved but I had to follow up twice.", "OK, communication could be clearer.", "Got there eventually."],
+  2: ["Slow and I had to re-explain the issue.", "Closed before it was actually fixed.", "Frustrating experience."],
+  1: ["Reopened twice, still not right.", "No update for days.", "Had to escalate myself."],
+};
+export function MockCsatFeed({ model, records }) {
+  const rows = inWindow(records, model).filter((r) => r.is_done && r.csat != null);
+  const feed = rows.map((r) => { const bank = VERBATIMS[r.csat] || VERBATIMS[3]; return { r, text: bank[Math.floor(hashStr(r.key) * bank.length)] }; })
+    .sort((a, b) => hashStr(b.r.key) - hashStr(a.r.key)).slice(0, 6);
+  return (
+    <div className="panel span-2 mock">
+      <h2>Voice of the customer <MockBadge /></h2>
+      <p className="why">The verbatim feed a real CSAT/CES survey would produce. Scores are the tower's <strong>modelled</strong> CSAT; the comments are a <strong>mock</strong> bank — no survey tool is wired to this instance.</p>
+      <div className="mock-feed">
+        {feed.map(({ r, text }) => (
+          <div key={r.key} className="mock-vo">
+            <span className={`csat-chip c${r.csat}`}>{r.csat}/5</span>
+            <span className="mock-vo-text">“{text}”</span>
+            <span className="int-note">{r.key} · {r.tower}</span>
+          </div>))}
+        {!feed.length && <span className="why">Loading…</span>}
+      </div>
+    </div>
+  );
+}
+
+// (3) Predictive breach-risk — a real model would score open tickets by breach probability.
+// Here the score is a deterministic heuristic (age vs a nominal target by priority) over the
+// REAL open tickets — illustrative of the ranking, not a trained prediction.
+const NOMINAL_H = { "P1 - Critical": 8, "P2 - High": 24, "P3 - Medium": 72, "P4 - Low": 160, Highest: 8, High: 24, Medium: 72, Low: 160 };
+export function MockBreachRisk({ model, records, open }) {
+  const rows = inWindow(records, model).filter((r) => r.is_open);
+  const scored = rows.map((r) => {
+    const tgt = NOMINAL_H[r.priority] || 72;
+    const ageH = (r.age_days || 0) * 24;
+    const risk = Math.max(0, Math.min(99, Math.round(100 * (ageH / tgt) - 8 + hashStr(r.key) * 16)));
+    return { r, risk };
+  }).sort((a, b) => b.risk - a.risk).slice(0, 8);
+  return (
+    <div className="panel span-2 mock">
+      <h2>Predictive breach risk <MockBadge /></h2>
+      <p className="why">How a trained model would rank open work by breach probability. The tickets are <strong>real &amp; open</strong>; the score is a <strong>deterministic heuristic</strong> (age vs a nominal target), not a live prediction. <span className="hint">Click a row.</span></p>
+      <table className="mini-table">
+        <tbody>
+          {scored.map(({ r, risk }) => (
+            <tr key={r.key} onClick={() => open({ type: "records", label: `${r.key}`, pred: (x) => x.key === r.key })} style={{ cursor: "pointer" }}>
+              <td><div className="risk-bar"><div className="risk-fill" style={{ width: `${risk}%`, background: risk > 75 ? "var(--crit)" : risk > 45 ? "var(--warn)" : "var(--ok)" }} /></div></td>
+              <td className="tnum">{risk}%</td>
+              <td>{r.key}</td><td className="int-note">{r.priority} · {f1(r.age_days)}d</td>
+            </tr>))}
+          {!scored.length && <tr><td className="why">No open work in window.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// (4) Multi-instance / MSP — a real deployment would roll up N Jira instances. This tenant's
+// headline is REAL; the other tenants are a deterministic mock so the multi-tenant UX shows.
+export function MockMultiInstance({ model, records }) {
+  const rows = inWindow(records, model);
+  const done = rows.filter((r) => r.is_done).length;
+  const realPct = rows.length ? Math.round(done / rows.length * 100) : 0;
+  const tenants = [
+    { name: `${model.project} (this instance)`, vol: rows.length, done: realPct, real: true },
+    { name: "Acme Retail", vol: 312, done: 71, real: false },
+    { name: "Northwind Health", vol: 188, done: 83, real: false },
+    { name: "Globex Fin", vol: 940, done: 64, real: false },
+  ];
+  const [sel, setSel] = useState(0);
+  const t = tenants[sel];
+  return (
+    <div className="panel span-2 mock">
+      <h2>Multi-instance rollup (MSP) <MockBadge /></h2>
+      <p className="why">The cross-tenant view an MSP running many Jira instances would see. <strong>This</strong> tenant's numbers are real; the others are a <strong>mock</strong> — there is only one instance here.</p>
+      <div className="tenant-tabs">
+        {tenants.map((tn, i) => (
+          <button key={i} className={`tenant-tab${i === sel ? " on" : ""}${tn.real ? " real" : ""}`} onClick={() => setSel(i)}>{tn.name}</button>
+        ))}
+      </div>
+      <div className="int-row">
+        <div className="int-cell"><span className="int-k">requests</span><span className="int-v tnum">{t.vol}</span><span className="int-note">{t.real ? "real, in window" : "mock tenant"}</span></div>
+        <div className="int-cell"><span className="int-k">resolved</span><span className="int-v tnum">{t.done}%</span><span className="int-note">{t.real ? "real" : "mock"}</span></div>
+      </div>
+    </div>
+  );
+}
+
+// (5) 18-month outcomes — the long-horizon trajectory a real pilot proves over time. The
+// start point is the REAL current headline; the forward curve is a deterministic mock.
+export function MockOutcomes18mo({ model, records }) {
+  const rows = inWindow(records, model);
+  const start = rows.length ? Math.round(rows.filter((r) => r.is_done).length / rows.length * 100) : 40;
+  const target = Math.min(95, start + 22);
+  const series = Array.from({ length: 18 }, (_, m) => Math.round(start + (target - start) * (1 - Math.exp(-m / 6)) + Math.sin(m) * 1.5));
+  return (
+    <div className="panel span-2 mock">
+      <h2>18-month outcome trajectory <MockBadge /></h2>
+      <p className="why">What a real pilot would prove over 18 months. Month 0 is the <strong>real</strong> current resolved-rate; the forward curve to a {target}% target is a <strong>mock</strong> projection — real outcomes need real elapsed time.</p>
+      <Sparkline points={series} w={560} h={90} color="var(--accent)" fmt={(v) => v + "%"} />
+      <div className="int-note">month 0 → 18 · {start}% (real) → {target}% (mock target)</div>
+    </div>
+  );
+}
+
 // ==== Part IV — OPS cross-cuts (heatmaps, analyst load, flow balance) ==================
 const TOWER_SHORT = { "End User Computing": "EUC", "Enterprise Applications": "ENT", "Network & Connectivity": "NET", "Cloud & Security": "SEC", "Compute & Storage": "CMP", "Database": "DB" };
 const shortTower = (t) => TOWER_SHORT[t] || (t || "").slice(0, 4);

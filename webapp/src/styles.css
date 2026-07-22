@@ -415,3 +415,30 @@ ol.recs li.clickable:hover { border-left-color: var(--warn); }
 .rl-chip:hover { background: var(--accent); color: #fff; }
 .rl-table th.sortable { cursor: pointer; }
 .rl-table th.sortable:hover { color: var(--accent); }
+
+/* ---- SFC delivery + MOCK panels (mini charts, feeds, tenant tabs) ---- */
+.mini-lab { font: 0.68rem/1.4 var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.2rem; }
+.mini-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.mini-table td { padding: 0.22rem 0.4rem; border-bottom: 1px solid var(--rule); }
+.mini-table tr:hover td { background: var(--raised); }
+.risk-bar { width: 90px; height: 8px; border-radius: 4px; background: var(--raised); overflow: hidden; }
+.risk-fill { height: 100%; border-radius: 4px; }
+
+/* MOCK: unmistakable, never confused with real data */
+.mock-badge { display: inline-block; font: 700 0.62rem/1 var(--mono); letter-spacing: 0.08em; color: #fff; background: #b5179e; border-radius: 4px; padding: 0.16rem 0.34rem; vertical-align: middle; margin-left: 0.4rem; }
+.panel.mock { border-top: 2px dashed #b5179e; }
+.panel.mock h2 { color: var(--ink); }
+.mock-chat { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.4rem; }
+.mock-q { font-style: italic; color: var(--ink-soft); }
+.mock-a { background: var(--raised); border-left: 3px solid #b5179e; border-radius: 6px; padding: 0.6rem 0.8rem; line-height: 1.5; }
+.mock-feed { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.4rem; }
+.mock-vo { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.mock-vo-text { flex: 1; min-width: 200px; }
+.csat-chip { font: 700 0.7rem var(--mono); border-radius: 4px; padding: 0.1rem 0.34rem; color: #fff; }
+.csat-chip.c5, .csat-chip.c4 { background: var(--ok); }
+.csat-chip.c3 { background: var(--warn); }
+.csat-chip.c2, .csat-chip.c1 { background: var(--crit); }
+.tenant-tabs { display: flex; gap: 0.35rem; flex-wrap: wrap; margin: 0.4rem 0 0.6rem; }
+.tenant-tab { font: 0.75rem var(--sans); padding: 0.24rem 0.6rem; border: 1px solid var(--rule); border-radius: 6px; background: transparent; color: var(--ink-soft); cursor: pointer; }
+.tenant-tab.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.tenant-tab.real { font-weight: 700; }

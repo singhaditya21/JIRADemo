@@ -16,14 +16,19 @@ host's own secret store, which you set yourself.
 ## What you get
 
 `app/server.py` serves the **same** numbers the bake produces (it calls the identical
-`app.control_tower.build_model` and `app.export_pages._record`), so live and static can never
+`app.control_tower.build_model` / `app.export_pages._record` for OPS & ITSM, and
+`app.sfc_export.fetch_sfc_records` / `sfc_model` for SFC), so live and static can never
 disagree:
 
 | Endpoint | Returns |
 |---|---|
 | `GET /api/tower?project=OPS&days=90` | the aggregate model the panels render |
 | `GET /api/records?project=ITSM` | the record-level rows the drill-downs use |
+| `GET /api/tower?project=SFC&days=90` | the DeliveryIQ / SF Config model (stages, deploys, health) |
 | `GET /api/health` | `{"ok": true}` |
+
+All three projects — `OPS`, `ITSM`, `SFC` — are served. (SFC's snapshot history + frozen
+baseline are still baked static files; the live backend serves the model + records.)
 
 It is read-only — no endpoint mutates Jira — and caches briefly (2 min aggregate, 5 min
 records) so a page refresh is cheap.

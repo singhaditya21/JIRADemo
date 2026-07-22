@@ -264,6 +264,8 @@ def export(out_dir, day_windows):
         for days, name in zip(day_windows, sfc_files):
             index["files"]["SFC-%d" % days] = name
         index["record_files"]["SFC"] = "SFC-records.json"
+        index.setdefault("history_files", {})["SFC"] = "SFC-history.json"
+        index.setdefault("baseline_files", {})["SFC"] = "SFC-baseline.json"
         index["projects"].append("SFC")
         ok_any = True
         print("  + SFC live bake (%d requests)" % count)
