@@ -60,6 +60,13 @@ jobs:
         # Add --fail-on-breach for a real deployment that wants a red build when off-target.
         run: python3 -m app.alerts --data-dir webapp/public/data --days 90
 
+      - name: Seed the DeliveryIQ / SF Config preview lens
+        # The SFC Jira project isn't provisioned yet (see DELIVERYIQ-SF-CONFIG.md P0), so the
+        # new lens shows a DETERMINISTIC, clearly-labelled preview (every record/model carries
+        # preview:true and the UI shows a "preview — not live" banner). Once P0 lands, this
+        # step is replaced by a real SFC entry in app/export_pages PROJECTS.
+        run: python3 -m app.sfc_seed --n 64
+
       - name: Persist snapshot history
         # The bake appended today's KPI point to webapp/public/data/*-history.json. Commit it
         # back so it accumulates run-over-run (the deployed artifact already has today's point;

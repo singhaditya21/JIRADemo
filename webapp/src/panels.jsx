@@ -1100,6 +1100,147 @@ export function SnapshotTrends({ history }) {
   );
 }
 
+// ==== DeliveryIQ — Salesforce Config lens (SFC) =======================================
+const SFC_STAGES = ["Intake", "Build", "Review", "Deploy", "Audit"];
+const DEPLOY_ORDER = ["Not started", "Validated", "Deploying", "Deployed", "Failed", "Rolled back"];
+const HEALTH_COLOR = { Healthy: "var(--ok)", Degraded: "var(--warn)", Failing: "var(--crit)", Unknown: "var(--muted)" };
+
+// Honesty banner — the SFC data is a preview until the real Jira project is provisioned.
+export function DeliveryPreviewBanner({ model }) {
+  if (!model || !model.preview) return null;
+  return (
+    <div className="panel span-full headline" style={{ borderLeftColor: "var(--accent)" }}>
+      <span className="headline-tag" style={{ color: "var(--accent)", borderColor: "var(--accent)" }}>Preview</span>
+      <span className="headline-text">This is a <strong>deterministic preview</strong> of the Delivery / SF Config lens — the SFC Jira project isn't provisioned yet (see the P0 build). Not live Jira/Salesforce data; deploy state &amp; health flip to real once the CI writeback runs.</span>
+    </div>
+  );
+}
+
+export function SFCKpi({ model, records }) {
+  const rows = inWindow(records, model);
+  const ods = rows.flatMap((r) => r.org_deploys || []);
+  const deployed = ods.filter((d) => d.deploy_state === "Deployed").length;
+  const failed = ods.filter((d) => /failed|rolled/i.test(d.deploy_state)).length;
+  const lead = rows.filter((r) => r.resolved_at).map(ttrHours).filter((x) => x != null);
+  const evReady = rows.filter((r) => r.evidence_pack_ready).length;
+  return (
+    <div className="panel span-full">
+      <h2>Delivery scoreboard</h2>
+      <p className="why">Salesforce config requests across the DeliveryIQ pipeline. Deploy state &amp; health are per-org (Model A sub-tasks). {records ? "" : "Loading…"}</p>
+      <div className="miniboard">
+        <div><span className="k">requests</span><span className="v tnum">{rows.length}</span></div>
+        <div><span className="k">org-deploys</span><span className="v tnum">{ods.length}</span></div>
+        <div><span className="k">deploy success</span><span className="v tnum" style={{ color: "var(--ok)" }}>{ods.length ? Math.round(deployed / ods.length * 100) : "—"}%</span></div>
+        <div><span className="k">deploys failed</span><span className="v tnum" style={{ color: failed ? "var(--crit)" : "var(--ok)" }}>{failed}</span></div>
+        <div><span className="k">lead time (med)</span><span className="v tnum">{dur(median(lead))}</span></div>
+        <div><span className="k">evidence ready</span><span className="v tnum">{evReady}</span></div>
+      </div>
+    </div>
+  );
+}
+
+// The five-stage delivery funnel (Intake→Build→Review→Deploy→Audit).
+export function StageFunnel({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const bars = SFC_STAGES.map((s) => ({ label: s, value: rows.filter((r) => r.stage === s).length,
+    color: s === "Audit" ? "var(--ok)" : s === "Deploy" ? "var(--warn)" : "var(--accent)" }));
+  const cyc = SFC_STAGES.map((s) => { const rs = rows.filter((r) => r.stage === s && r.resolved_at); return { s, med: median(rs.map(ttrHours)) }; });
+  return (
+    <div className="panel span-2">
+      <h2>Delivery funnel — five stages</h2>
+      <p className="why">Where every config request sits in the pipeline (stage is derived from status, so this can't disagree with a status filter). <span className="hint">Click a stage.</span></p>
+      {records && <Bars rows={bars} barH={20}
+        onPick={(b) => open({ type: "records", label: `Stage · ${b.label}`, pred: (r) => r.stage === b.label, reconcile: b.value })} />}
+    </div>
+  );
+}
+
+// Per-org deploy matrix — org × deploy state (Model A sub-tasks flattened).
+export function DeployMatrix({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const ods = rows.flatMap((r) => (r.org_deploys || []).map((d) => ({ ...d, key: r.key })));
+  const orgs = [...new Set(ods.map((d) => d.org))];
+  const states = DEPLOY_ORDER.filter((s) => ods.some((d) => d.deploy_state === s));
+  return (
+    <div className="panel span-2">
+      <h2>Per-org deploy matrix</h2>
+      <p className="why">Deploy state of every request in every target org — the fan-out a flat field can't show. Each cell counts org-deploys. {records ? "" : "Loading…"} <span className="hint">Click a cell.</span></p>
+      {records && <Heatmap rows={orgs} cols={states} w={620} labW={120} cellH={40}
+        cell={(org, st) => ({ value: ods.filter((d) => d.org === org && d.deploy_state === st).length })}
+        onPick={(org, st, d) => open({ type: "records", label: `${org} · ${st}`, pred: (r) => (r.org_deploys || []).some((x) => x.org === org && x.deploy_state === st), reconcile: null })} />}
+    </div>
+  );
+}
+
+// Config health board — health distribution + freshness + real-vs-seeded source split.
+export function ConfigHealthBoard({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const ods = rows.flatMap((r) => r.org_deploys || []);
+  const slices = ["Healthy", "Degraded", "Failing", "Unknown"].map((h) => ({ label: h, color: HEALTH_COLOR[h], value: ods.filter((d) => d.config_health === h).length })).filter((s) => s.value);
+  const ciSourced = ods.filter((d) => d.source === "CI writeback").length;
+  const stale = ods.filter((d) => d.config_health !== "Unknown" && !d.health_checked_at).length;
+  const healthy = ods.filter((d) => d.config_health === "Healthy").length;
+  return (
+    <div className="panel span-2">
+      <h2>Config health</h2>
+      <p className="why">Post-deploy health per org from the drift probe. A verdict with no fresh check reads <strong>Unknown</strong>, never green. {records ? "" : "Loading…"}</p>
+      {records && (
+        <div className="donut-row">
+          <Donut slices={slices} center={{ v: ods.length ? `${Math.round(healthy / ods.length * 100)}%` : "—", k: "healthy" }} />
+          <div className="legend">
+            {slices.map((s) => <div key={s.label} className="leg-item"><span className="leg-sw" style={{ background: s.color }} />{s.label} <span className="tnum">{s.value}</span></div>)}
+            <div className="leg-item" style={{ marginTop: "0.3rem", color: "var(--muted)" }}>CI-written: <span className="tnum">{ciSourced}/{ods.length}</span> · stale: <span className="tnum">{stale}</span></div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Agent-action ledger — what Build / Comply / Coord produced, per DeliveryIQ (evidence as byproduct).
+export function AgentLedger({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const pc = (pred) => rows.length ? Math.round(rows.filter(pred).length / rows.length * 100) : 0;
+  const cards = [
+    { agent: "Build", k: "tested + lint pass", v: pc((r) => r.build_tested), color: "var(--accent)" },
+    { agent: "Comply", k: "authorization logged", v: pc((r) => r.comply_authorized), color: "var(--ok)" },
+    { agent: "Comply", k: "evidence pack ready", v: pc((r) => r.evidence_pack_ready), color: "var(--ok)" },
+    { agent: "Coord", k: "conflicts flagged", v: rows.reduce((a, r) => a + (r.coord_conflicts || 0), 0), color: "var(--warn)", raw: true },
+    { agent: "Coord", k: "dependencies scanned", v: rows.reduce((a, r) => a + (r.coord_dependencies || 0), 0), color: "var(--warn)", raw: true },
+  ];
+  return (
+    <div className="panel span-2 integrity">
+      <h2>Agent action ledger <span className="why" style={{ display: "inline", margin: 0 }}>— Build / Comply / Coord outputs, captured as a byproduct of the work.</span></h2>
+      <div className="int-row">
+        {cards.map((c, i) => (
+          <div key={i} className="int-cell ok" style={{ borderLeftColor: c.color }}>
+            <span className="int-k">{c.agent} · {c.k}</span>
+            <span className="int-v tnum">{c.raw ? c.v : c.v + "%"}</span>
+            <span className="int-note">{c.raw ? "across all requests in window" : "of requests in window"}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// CAB approval + evidence gate (Comply surface).
+export function CABGate({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const need = rows.filter((r) => r.cab_approval && r.cab_approval !== "Not required");
+  const c = {}; for (const r of need) c[r.cab_approval] = (c[r.cab_approval] || 0) + 1;
+  const bars = Object.entries(c).sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value,
+    color: label === "Approved" ? "var(--ok)" : label === "Rejected" ? "var(--crit)" : "var(--warn)" }));
+  return (
+    <div className="panel">
+      <h2>CAB approval gate</h2>
+      <p className="why">Change-advisory approval for the {need.length} risk-bearing requests (Low-risk changes skip CAB). <span className="hint">Click a state.</span></p>
+      {records && <Bars rows={bars} barH={18}
+        onPick={(b) => open({ type: "records", label: `CAB · ${b.label}`, pred: (r) => r.cab_approval === b.label, reconcile: b.value })} />}
+    </div>
+  );
+}
+
 // ==== Part IV — OPS cross-cuts (heatmaps, analyst load, flow balance) ==================
 const TOWER_SHORT = { "End User Computing": "EUC", "Enterprise Applications": "ENT", "Network & Connectivity": "NET", "Cloud & Security": "SEC", "Compute & Storage": "CMP", "Database": "DB" };
 const shortTower = (t) => TOWER_SHORT[t] || (t || "").slice(0, 4);

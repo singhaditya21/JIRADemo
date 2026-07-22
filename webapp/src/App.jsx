@@ -12,10 +12,11 @@ import { KpiStrip, PairingPanel, Analysts, KBGap, Towers, Intake, Ageing,
   IncidentVolByTower, IncidentEscByTower, MTTAByPriority, OLAHandoff, SlaOutcomeMix,
   SlaTypePriority, RequestAging, ApprovalAging, RCACycle, CSATvsSLA, CSATByTower,
   QueueDepth, ChangeSuccess, ProblemBacklog, DQBoard,
-  HeadlineBanner, PilotProgress, AtRiskToday, RuleHealth, DeflectionFunnel } from "./panels.jsx";
+  HeadlineBanner, PilotProgress, AtRiskToday, RuleHealth, DeflectionFunnel,
+  DeliveryPreviewBanner, SFCKpi, StageFunnel, DeployMatrix, ConfigHealthBoard, AgentLedger, CABGate } from "./panels.jsx";
 import { Drawer } from "./drill.jsx";
 
-const PROJECTS = ["OPS", "ITSM"];
+const PROJECTS = ["OPS", "ITSM", "SFC"];
 const WINDOWS = [30, 90, 180];
 const LENSES = [
   { id: "overview", lab: "Overview", blurb: "The whole system — how the tower is performing end to end." },
@@ -30,6 +31,16 @@ function lensPanels(lens, project, model, open, records, history, baseline) {
   const P = { model, open };
   const R = { model, open, records };
   const itsm = project === "ITSM";
+  // SFC (DeliveryIQ) is its own delivery-pipeline lens — same panels for every tab.
+  if (project === "SFC") return [
+    <DeliveryPreviewBanner key="pre" {...P} />,
+    <SFCKpi key="kpi" {...R} />,
+    <StageFunnel key="fun" {...R} />,
+    <DeployMatrix key="dm" {...R} />,
+    <ConfigHealthBoard key="chb" {...R} />,
+    <CABGate key="cab" {...R} />,
+    <AgentLedger key="led" {...R} />,
+  ];
   if (lens === "L1") return [
     <InsightsFeed key="ins" {...P} />,
     <QueueByStatus key="q" {...P} tier="L1" />,
@@ -323,10 +334,10 @@ export default function App() {
         {model && !err && (
           <>
             <div className="lens-caption">
-              <strong>{LENSES.find((l) => l.id === lens).lab}</strong>
-              <span>{LENSES.find((l) => l.id === lens).blurb}</span>
+              <strong>{project === "SFC" ? "Delivery / SF Config" : LENSES.find((l) => l.id === lens).lab}</strong>
+              <span>{project === "SFC" ? "DeliveryIQ — Salesforce config requests through the five-stage pipeline (Intake → Build → Review → Deploy → Audit)." : LENSES.find((l) => l.id === lens).blurb}</span>
             </div>
-            <KpiStrip model={model} lens={lens} open={setDrill} />
+            {project !== "SFC" && <KpiStrip model={model} lens={lens} open={setDrill} />}
             <div className="grid" ref={gridRef}>
               {lensPanels(lens, project, model, setDrill, records[project] || null, history[project] || null, baseline[project] || null)}
             </div>
