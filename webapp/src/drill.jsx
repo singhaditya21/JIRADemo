@@ -244,7 +244,8 @@ function detail(d, model) {
 // Layer (b): small-multiples of the population behind a mark, sliced several ways.
 function Cohort({ rows, onPick }) {
   if (!rows || rows.length < 3) return null;
-  const dims = [["tower", "by tower"], ["priority", "by priority"], ["status", "by status"], ["intake", "by channel"]];
+  const dims = [["tower", "by tower"], ["priority", "by priority"], ["status", "by status"], ["intake", "by channel"],
+    ["tier", "by tier"], ["escalation_reason", "by esc. reason"], ["root_cause", "by root cause"], ["resolution_sla", "by SLA outcome"]];
   const countBy = (k) => {
     const c = {};
     for (const r of rows) { const v = r[k] || "—"; c[v] = (c[v] || 0) + 1; }

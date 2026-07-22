@@ -1149,6 +1149,100 @@ export function AnalystLoad({ model, records, open }) {
   );
 }
 
+// ==== Wave 5 — highest-value remaining items ==========================================
+// Part VI 6.2 / Part V 10.1 — SLA-at-risk today: open non-paused work ordered by burn.
+const SLA_TARGET_DAYS = { "P1 - Critical": 1, "P2 - High": 2, "P3 - Medium": 5, "P4 - Low": 10 };
+export function AtRiskToday({ model, records, open }) {
+  const rows = inWindow(records, model).filter((r) => r.is_open && r.resolution_sla !== "Paused" && r.age_days != null);
+  const scored = rows.map((r) => { const tgt = SLA_TARGET_DAYS[r.priority] || 5; return { r, burn: r.age_days / tgt * 100, tgt }; })
+    .sort((a, b) => b.burn - a.burn);
+  const atRisk = scored.filter((x) => x.burn >= 75);
+  const top = scored.slice(0, 12);
+  return (
+    <div className="panel span-2">
+      <h2>SLA at-risk today</h2>
+      <p className="why">Open, running-clock work ordered by burn (age ÷ a per-priority target). ≥75% elapsed is at-risk; ≥100% is already over. <strong>{atRisk.length}</strong> at-risk now. <span className="hint">Click a row.</span></p>
+      {records && (
+        <div className="scrollx"><table className="rl-table">
+          <thead><tr><th>Key</th><th>Priority</th><th>Tower</th><th className="num">Age (d)</th><th className="num">Burn</th></tr></thead>
+          <tbody>{top.map((x) => (
+            <tr key={x.r.key} className="clickable" onClick={() => open({ type: "records", label: `At-risk: ${x.r.key}`, pred: (r) => r.key === x.r.key, windowed: false, reconcile: 1 })}>
+              <td className="mono"><a href={x.r.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{x.r.key}</a></td>
+              <td>{PRI_SHORT[x.r.priority] || x.r.priority}</td><td>{shortTower(x.r.tower)}</td>
+              <td className="num tnum">{Math.round(x.r.age_days)}</td>
+              <td className="num tnum" style={{ color: x.burn >= 100 ? "var(--crit)" : x.burn >= 75 ? "var(--warn)" : "var(--ink)" }}>{Math.round(x.burn)}%</td>
+            </tr>
+          ))}</tbody>
+        </table></div>
+      )}
+    </div>
+  );
+}
+
+// Part IV Theme L — automation-rule effectiveness board.
+export function RuleHealth({ model, records, open }) {
+  const rows = inWindow(records, model);
+  // rule 1: priority conformance vs the Impact×Urgency matrix (High/High→P1 … Low/Low→P4)
+  const matrix = (imp, urg) => { const s = (imp === "High" ? 2 : imp === "Medium" ? 1 : 0) + (urg === "High" ? 2 : urg === "Medium" ? 1 : 0); return s >= 4 ? "P1" : s >= 3 ? "P2" : s >= 1 ? "P3" : "P4"; };
+  const withIU = rows.filter((r) => r.impact && r.urgency && r.priority);
+  const conform = withIU.filter((r) => (PRI_SHORT[r.priority] || r.priority) === matrix(r.impact, r.urgency)).length;
+  // rule 5: pause coverage — waiting tickets correctly marked Paused
+  const waiting = rows.filter((r) => /waiting|pending|hold/i.test(r.status));
+  const paused = waiting.filter((r) => r.resolution_sla === "Paused").length;
+  // rule 6: reopen catch — reopened count
+  const reopened = rows.filter((r) => r.is_reopened).length;
+  const cards = [
+    { k: "Rule 1 · priority conformance", v: withIU.length ? `${Math.round(conform / withIU.length * 100)}%` : "—", ok: withIU.length ? conform / withIU.length >= 0.9 : true, n: `${conform}/${withIU.length}` },
+    { k: "Rule 5 · pause coverage", v: waiting.length ? `${Math.round(paused / waiting.length * 100)}%` : "—", ok: waiting.length ? paused / waiting.length >= 0.9 : true, n: `${paused}/${waiting.length}` },
+    { k: "Rule 6 · reopens caught", v: `${reopened}`, ok: true, n: "flagged for review" },
+  ];
+  return (
+    <div className="panel span-2 integrity">
+      <h2>Automation-rule health <span className="why" style={{ display: "inline", margin: 0 }}>— are the seven rules doing their job, measured from the records they touch?</span></h2>
+      <div className="int-row">
+        {cards.map((c, i) => (
+          <div key={i} className={"int-cell " + (c.ok ? "ok" : "warn")}>
+            <span className="int-k">{c.k}</span><span className="int-v tnum">{c.v}</span><span className="int-note">{c.n}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Part V 11.4 — deflection funnel (intake → self-service → KB → escalated).
+export function DeflectionFunnel({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const total = rows.length;
+  const portal = rows.filter((r) => r.intake === "Portal").length;
+  const kbApplied = rows.filter((r) => r.kb_checked === "Yes - article applied").length;
+  const l1Resolved = rows.filter((r) => r.counts_as_ftr).length;
+  const escalated = rows.filter((r) => r.is_escalated).length;
+  const stages = [
+    { k: "All intake", v: total, color: "var(--accent)" },
+    { k: "Portal (self-serve)", v: portal, color: "var(--ok)" },
+    { k: "KB applied", v: kbApplied, color: "var(--ok)" },
+    { k: "Resolved at L1", v: l1Resolved, color: "var(--warn)" },
+    { k: "Escalated (not deflected)", v: escalated, color: "var(--crit)" },
+  ];
+  const max = Math.max(...stages.map((s) => s.v), 1);
+  return (
+    <div className="panel span-2">
+      <h2>Deflection funnel</h2>
+      <p className="why">From all demand down to what still needed L2 — each stage that catches work earlier is deflection. Width ∝ volume.</p>
+      <div className="funnel">
+        {stages.map((s, i) => (
+          <div key={i} className="funnel-row">
+            <span className="funnel-k">{s.k}</span>
+            <div className="funnel-bar"><span style={{ width: `${s.v / max * 100}%`, background: s.color }} /></div>
+            <span className="funnel-v tnum">{s.v} <span className="funnel-pct">{Math.round(s.v / total * 100)}%</span></span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ==== Part VI — surfaces ==============================================================
 // Headline banner: the single most material insight, atop the Overview lens (roadmap 6.1).
 export function HeadlineBanner({ model, open }) {

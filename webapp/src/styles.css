@@ -257,6 +257,15 @@ tr.clickable:hover td { background: var(--accent-dim); }
 .int-v { font-size: 1.1rem; font-weight: 650; }
 .int-note { font-size: 0.72rem; color: var(--muted); }
 
+/* Deflection funnel (Part V 11.4) */
+.funnel { display: grid; gap: 0.4rem; }
+.funnel-row { display: grid; grid-template-columns: 170px 1fr auto; align-items: center; gap: 0.6rem; }
+.funnel-k { font-size: 0.78rem; color: var(--ink-soft); }
+.funnel-bar { background: var(--rule); border-radius: 3px; height: 18px; overflow: hidden; }
+.funnel-bar > span { display: block; height: 100%; border-radius: 3px; }
+.funnel-v { font-family: var(--mono); font-size: 0.8rem; }
+.funnel-pct { color: var(--muted); font-size: 0.68rem; }
+
 /* Part VI surfaces — headline banner + pilot progress */
 .headline { display: flex; align-items: center; gap: 0.8rem; border-left: 4px solid var(--warn);
   background: linear-gradient(90deg, color-mix(in srgb, var(--warn) 10%, var(--raised)), var(--raised)); }

@@ -12,7 +12,7 @@ import { KpiStrip, PairingPanel, Analysts, KBGap, Towers, Intake, Ageing,
   IncidentVolByTower, IncidentEscByTower, MTTAByPriority, OLAHandoff, SlaOutcomeMix,
   SlaTypePriority, RequestAging, ApprovalAging, RCACycle, CSATvsSLA, CSATByTower,
   QueueDepth, ChangeSuccess, ProblemBacklog, DQBoard,
-  HeadlineBanner, PilotProgress } from "./panels.jsx";
+  HeadlineBanner, PilotProgress, AtRiskToday, RuleHealth, DeflectionFunnel } from "./panels.jsx";
 import { Drawer } from "./drill.jsx";
 
 const PROJECTS = ["OPS", "ITSM"];
@@ -64,6 +64,9 @@ function lensPanels(lens, project, model, open, records, history, baseline) {
     <InsightsFeed key="ins" {...P} />,
     <PilotProgress key="pp" model={model} baseline={baseline} history={history} />,
     <Recommendations key="rec" {...P} />,
+    <AtRiskToday key="risk" {...R} />,
+    <DeflectionFunnel key="def" {...R} />,
+    ...(itsm ? [] : [<RuleHealth key="rh" {...R} />]),
     <WhatChanged key="chg" history={history} />,
     <AnomalyWatch key="anom" {...P} />,
     <BenchmarkLeague key="league" {...P} />,
