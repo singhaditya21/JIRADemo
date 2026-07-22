@@ -15,8 +15,10 @@ issue rests in the initial status — reported honestly, never silently.
 
     python3 -m fixtures.sfc_seed [--n 64] [--days 180] [--dry-run] [--workers 6]
 
-Requires jira_config/state/.sfc_state.json — run `python3 -m jira_config.sfc_build`
-first. The token is CI-only, so the intended path is the sfc-build.yml Action.
+Resolves field ids by NAME from the live instance (no build-artifact/state file), so
+it runs standalone in its own CI job — but the SFC project + fields + bound workflow
+must already exist, so run `python3 -m jira_config.sfc_build` first. The token is
+CI-only, so the intended path is the sfc-build.yml Action (mode=seed).
 """
 
 import argparse
@@ -25,8 +27,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 from shared.jira_client import Jira, adf, log, require_env
-from jira_config import SFC_STATE as STATE
-from jira_config import merge_state, read_state
+from shared import fields as SF          # disambiguates the OPS-shared field names
 from app.sfc_seed import build  # single source of truth for the record shape
 
 REQUEST_TYPE = "Salesforce Config Request"
@@ -246,6 +247,38 @@ def createmeta(j):
     return None, priorities
 
 
+def resolve_fields(j):
+    """Resolve every SFC field NAME the seeder sets to a customfield id, from the live
+    instance — no build-artifact/state file required.
+
+    This matches the repo's own principle (shared/fields.py): the contract between the
+    configurator and everything downstream is the field NAME; ids are per-instance. It
+    also means the seeder runs in a different CI job than sfc_build without needing the
+    ephemeral .sfc_state.json. SFC-owned names are unique on the instance, so a plain
+    name->id map is safe for them; the OPS-shared names (Impact/Urgency/L2 Analyst/the
+    four dates) are disambiguated through shared.fields.resolve (this instance has two
+    "Urgency" fields). Returns (name->id, [unresolved names]).
+    """
+    allcf = {}
+    for f in j.get("/rest/api/3/field"):
+        if f.get("custom"):
+            allcf.setdefault(f["name"], f["id"])  # first-wins; SFC names are unique
+    try:
+        shared = SF.resolve(j)
+    except SF.FieldResolutionError:
+        shared = {}
+    names = {n for _, n, _ in REQUEST_MAP} | {n for _, n, _ in SUBTASK_MAP}
+    F, missing = {}, []
+    for name in sorted(names):
+        if name in shared:
+            F[name] = shared[name]          # disambiguated OPS-shared id
+        elif name in allcf:
+            F[name] = allcf[name]
+        else:
+            missing.append(name)
+    return F, missing
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="fixtures.sfc_seed")
     ap.add_argument("--n", type=int, default=64)
@@ -256,12 +289,11 @@ def main(argv=None):
 
     require_env()
     j = Jira()
-    if not STATE.exists():
-        sys.exit("%s not found — run python3 -m jira_config.sfc_build first." % STATE.name)
-    state = read_state(STATE)
-    if "fields" not in state:
-        sys.exit("%s has no 'fields' — re-run python3 -m jira_config.sfc_build." % STATE.name)
-    F = state["fields"]
+    F, missing = resolve_fields(j)
+    log("  resolved %d/%d SFC field names to ids" % (len(F), len(F) + len(missing)))
+    if missing:
+        log("  ! unresolved (not on the instance yet): %s" % ", ".join(missing))
+        log("    Run `python3 -m jira_config.sfc_build` (dry_run=false) first if this is unexpected.")
 
     now = datetime.now(timezone.utc)
     _, records = build(args.n, args.days, now)   # same generator the preview lens uses
@@ -333,9 +365,6 @@ def main(argv=None):
         log("  ! no request reached a non-initial status — the SFC workflow is not bound "
             "to the project yet. Finish the workflow-scheme step (see sfc_build output), "
             "then re-run, or transition in the UI.")
-    state["seeded_requests"] = len(ok)
-    state["seeded_subtasks"] = subs_made
-    merge_state(STATE, state, ("seeded_requests", "seeded_subtasks"), dry=args.dry_run)
 
 
 if __name__ == "__main__":
