@@ -314,7 +314,14 @@ ol.recs li.clickable:hover { border-left-color: var(--warn); }
 .cohort-hint { text-transform: none; letter-spacing: 0; }
 .cohort-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.9rem 1.2rem; }
 .rl-toggle { margin-left: 0; }
-.rl-actions { margin-left: auto; display: inline-flex; gap: 0.35rem; }
+.rl-actions { margin-left: auto; display: inline-flex; gap: 0.35rem; align-items: center; }
+.rl-virt { font-family: var(--mono); font-size: 0.62rem; color: var(--muted); }
+.rl-colpick { position: relative; display: inline-block; }
+.colpick-menu { position: absolute; right: 0; top: 100%; margin-top: 4px; z-index: 20;
+  background: var(--surface, var(--raised)); border: 1px solid var(--rule); border-radius: 6px;
+  padding: 0.4rem 0.5rem; display: grid; gap: 0.15rem; box-shadow: 0 6px 24px rgba(0,0,0,0.28); min-width: 140px; }
+.colpick-menu label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.76rem; color: var(--ink-soft); cursor: pointer; white-space: nowrap; }
+.colpick-menu label.fixed { opacity: 0.6; cursor: default; }
 .rl-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.1rem 0 0.55rem; }
 .rl-chip { font: inherit; font-size: 0.72rem; cursor: pointer; background: var(--accent-dim);
   color: var(--accent); border: 1px solid var(--accent); border-radius: 12px; padding: 0.1rem 0.55rem; }

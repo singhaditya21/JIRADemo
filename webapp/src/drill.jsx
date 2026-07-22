@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Sparkline, Bars } from "./charts.jsx";
 
 // Tier bucket for the status-flow ribbon colour — works on OPS and ITSM status names.
@@ -345,9 +345,18 @@ function download(name, text, type) {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
+const ROW_H = 29;              // fixed row height, so the virtual window can do the math
+const VIRTUAL_MIN = 80;        // only window past this many rows (small lists render whole)
+
 function RecordList({ rows, total, spec, loading, onPick, xf, onRemoveFilter }) {
   const [numOnly, setNumOnly] = useState(false);
   const [sort, setSort] = useState(null);   // { k, dir }
+  const [hidden, setHidden] = useState(new Set());   // column keys toggled off
+  const [pickOpen, setPickOpen] = useState(false);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewH, setViewH] = useState(560);
+  const scrollRef = useRef(null);
+  const cols = COLUMNS.filter((c) => !hidden.has(c.k));
   const hiCount = spec.hi ? rows.filter(spec.hi).length : null;
   let shown = numOnly && spec.hi ? rows.filter(spec.hi) : rows;
   if (sort) {
@@ -361,14 +370,30 @@ function RecordList({ rows, total, spec, loading, onPick, xf, onRemoveFilter }) 
   const narrowed = numOnly || (xf && xf.length > 0);
   const cellVal = (c, r) => (c.link ? r.key : c.fmt ? c.fmt(r[c.k]) : r[c.k]);
   const csv = () => download(`records-${shown.length}.csv`,
-    COLUMNS.map((c) => c.h).join(",") + "\n" + shown.map((r) => COLUMNS.map((c) => csvCell(cellVal(c, r))).join(",")).join("\n"),
+    cols.map((c) => c.h).join(",") + "\n" + shown.map((r) => cols.map((c) => csvCell(cellVal(c, r))).join(",")).join("\n"),
     "text/csv;charset=utf-8");
   const copyKeys = () => navigator.clipboard && navigator.clipboard.writeText(shown.map((r) => r.key).join(", "));
   const sortBy = (k) => setSort((s) => (s && s.k === k ? { k, dir: -s.dir } : { k, dir: 1 }));
+
+  // Row virtualization: render only the rows in the scroll window (+ overscan), padded by
+  // spacer rows so the scrollbar and offsets stay correct. Kicks in past VIRTUAL_MIN.
+  useEffect(() => {
+    const el = scrollRef.current; if (!el) return;
+    const onScroll = () => setScrollTop(el.scrollTop);
+    setViewH(el.clientHeight || 560);
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [loading]);
+  const virtual = shown.length > VIRTUAL_MIN;
+  const start = virtual ? Math.max(0, Math.floor(scrollTop / ROW_H) - 6) : 0;
+  const end = virtual ? Math.min(shown.length, Math.ceil((scrollTop + viewH) / ROW_H) + 6) : shown.length;
+  const slice = shown.slice(start, end);
+  const padTop = start * ROW_H, padBot = (shown.length - end) * ROW_H;
+
   return (
     <div className="rl">
       <div className="rl-head">
-        <span><strong className="tnum">{shown.length}</strong>{narrowed && total != null ? ` of ${total}` : ""} record{shown.length === 1 ? "" : "s"}</span>
+        <span><strong className="tnum">{shown.length}</strong>{narrowed && total != null ? ` of ${total}` : ""} record{shown.length === 1 ? "" : "s"}{virtual ? <span className="rl-virt" title="rows are virtualised for scroll performance"> ·virtualised</span> : ""}</span>
         {spec.reconcile != null && !narrowed && (
           <span className={"rl-recon " + (total === spec.reconcile ? "ok" : "warn")}>
             {total === spec.reconcile ? `matches ${spec.reconcile} ✓` : `≠ expected ${spec.reconcile}`}
@@ -380,6 +405,20 @@ function RecordList({ rows, total, spec, loading, onPick, xf, onRemoveFilter }) 
           </button>
         )}
         <span className="rl-actions">
+          <span className="rl-colpick" onClick={(e) => e.stopPropagation()}>
+            <button className="rl-toggle" onClick={(e) => { e.stopPropagation(); setPickOpen((v) => !v); }} title="Choose columns">columns ▾</button>
+            {pickOpen && (
+              <div className="colpick-menu" onMouseLeave={() => setPickOpen(false)}>
+                {COLUMNS.map((c) => (
+                  <label key={c.k} className={c.k === "key" ? "fixed" : ""}>
+                    <input type="checkbox" checked={!hidden.has(c.k)} disabled={c.k === "key"}
+                      onChange={() => setHidden((h) => { const n = new Set(h); n.has(c.k) ? n.delete(c.k) : n.add(c.k); return n; })} />
+                    {c.h}
+                  </label>
+                ))}
+              </div>
+            )}
+          </span>
           <button className="rl-toggle" onClick={copyKeys} title="Copy the issue keys">copy keys</button>
           <button className="rl-toggle" onClick={csv} title="Download the current view as CSV">CSV ⬇</button>
         </span>
@@ -390,17 +429,18 @@ function RecordList({ rows, total, spec, loading, onPick, xf, onRemoveFilter }) 
         </div>
       )}
       {loading ? <div className="state">loading records …</div> : (
-        <div className="rl-scroll">
+        <div className="rl-scroll" ref={scrollRef}>
           <table className="rl-table">
-            <thead><tr>{COLUMNS.map((c) => (
+            <thead><tr>{cols.map((c) => (
               <th key={c.k} className={(c.num ? "num " : "") + "sortable"} onClick={() => sortBy(c.k)}>
                 {c.h}{sort && sort.k === c.k ? (sort.dir < 0 ? " ↓" : " ↑") : ""}
               </th>
             ))}</tr></thead>
             <tbody>
-              {shown.map((r) => (
-                <tr key={r.key} className={"clickable" + (spec.hi && spec.hi(r) ? " hi" : "")} onClick={() => onPick(r)}>
-                  {COLUMNS.map((c) => (
+              {padTop > 0 && <tr aria-hidden style={{ height: padTop }}><td colSpan={cols.length} /></tr>}
+              {slice.map((r) => (
+                <tr key={r.key} className={"clickable" + (spec.hi && spec.hi(r) ? " hi" : "")} onClick={() => onPick(r)} style={{ height: ROW_H }}>
+                  {cols.map((c) => (
                     <td key={c.k} className={(c.num ? "num " : "") + (c.cls || "") + (c.grow ? " grow" : "")}>
                       {c.link ? <a href={r.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{r.key}</a>
                         : c.fmt ? c.fmt(r[c.k]) : (r[c.k] ?? "")}
@@ -408,6 +448,7 @@ function RecordList({ rows, total, spec, loading, onPick, xf, onRemoveFilter }) 
                   ))}
                 </tr>
               ))}
+              {padBot > 0 && <tr aria-hidden style={{ height: padBot }}><td colSpan={cols.length} /></tr>}
             </tbody>
           </table>
         </div>
