@@ -117,7 +117,12 @@ SELECT1_FIELDS = {
     "Deploy State": ["Not started", "Validated", "Deploying", "Deployed",
                      "Failed", "Rolled back"],
     "Config Health": ["Healthy", "Degraded", "Failing", "Unknown"],
-    "Deploy Source": ["CI writeback", "Manual", "Seeded"],
+    # How a per-org deploy/health cell got its value. "Modelled" = maintained by the
+    # writeback job (app/sfc_writeback) — there is NO live Salesforce, so these values
+    # are modelled, not real deploy telemetry. "Seeded" = raw fixture value. ("CI
+    # writeback" is retained only so historical cells written before the no-Salesforce
+    # relabel still validate.)
+    "Deploy Source": ["Modelled", "Seeded", "Manual", "CI writeback"],
     # Agent-action ledger (Build / Compliance) — Yes/No so the boolean reconciles.
     "Build Tested": ["Yes", "No"],
     "Compliance Authorized": ["Yes", "No"],

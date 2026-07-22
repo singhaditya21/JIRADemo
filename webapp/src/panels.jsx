@@ -1107,22 +1107,22 @@ const HEALTH_COLOR = { Healthy: "var(--ok)", Degraded: "var(--warn)", Failing: "
 
 // Honesty banner. Loud amber while the lens runs on the deterministic preview seed;
 // once the real SFC Jira project is baked (model.preview === false) it drops to a
-// subtle live note that keeps the one remaining caveat visible: per-org deploy state
-// and config health are seeded until a real CI/CD writeback + drift probe run.
+// subtle live note that keeps the one caveat visible: per-org deploy state and config
+// health are modelled (this demo has no live Salesforce), maintained in Jira.
 export function DeliveryPreviewBanner({ model }) {
   if (!model) return null;
   if (model.preview) {
     return (
       <div className="panel span-full headline" style={{ borderLeftColor: "var(--accent)" }}>
         <span className="headline-tag" style={{ color: "var(--accent)", borderColor: "var(--accent)" }}>Preview</span>
-        <span className="headline-text">This is a <strong>deterministic preview</strong> of the Delivery / SF Config lens — the SFC Jira project isn't provisioned yet (see the P0 build). Not live Jira/Salesforce data; deploy state &amp; health flip to real once the CI writeback runs.</span>
+        <span className="headline-text">This is a <strong>deterministic preview</strong> of the Delivery / SF Config lens — the SFC Jira project isn't provisioned yet (see the P0 build). Not live Jira data; the real lens tracks Salesforce config requests as Jira issues (deploy state &amp; health are modelled — there is no live Salesforce).</span>
       </div>
     );
   }
   return (
     <div className="panel span-full headline" style={{ borderLeftColor: "var(--ok)" }}>
       <span className="headline-tag" style={{ color: "var(--ok)", borderColor: "var(--ok)" }}>Live</span>
-      <span className="headline-text"><strong>Live SFC Jira data.</strong> Stage, funnel, squad, CAB and the agent-action ledger are real. Per-org <strong>deploy state &amp; config health</strong> are written back to Jira by the CI/CD pipeline (<strong>Source = CI writeback</strong>, stamped each run); the Salesforce drift probe is simulated until SF credentials are set — the health board shows Source per cell, so it&apos;s never hidden.</span>
+      <span className="headline-text"><strong>Live SFC Jira data.</strong> The pipeline stage, funnel, squad, CAB and agent-action ledger are real Jira data. Per-org <strong>deploy state &amp; config health</strong> are <strong>modelled</strong> — this tracks Salesforce config requests as Jira issues, with no live Salesforce connection — and are maintained by the writeback job with a real <strong>Health Checked At</strong>, so a stale cell reads <strong>Unknown</strong>, never green.</span>
     </div>
   );
 }
@@ -1183,24 +1183,24 @@ export function DeployMatrix({ model, records, open }) {
   );
 }
 
-// Config health board — health distribution + freshness + real-vs-seeded source split.
+// Config health board — modelled health distribution + freshness (checked-at) split.
 export function ConfigHealthBoard({ model, records, open }) {
   const rows = inWindow(records, model);
   const ods = rows.flatMap((r) => r.org_deploys || []);
   const slices = ["Healthy", "Degraded", "Failing", "Unknown"].map((h) => ({ label: h, color: HEALTH_COLOR[h], value: ods.filter((d) => d.config_health === h).length })).filter((s) => s.value);
-  const ciSourced = ods.filter((d) => d.source === "CI writeback").length;
+  const modelRefreshed = ods.filter((d) => d.source === "Modelled").length;
   const stale = ods.filter((d) => d.config_health !== "Unknown" && !d.health_checked_at).length;
   const healthy = ods.filter((d) => d.config_health === "Healthy").length;
   return (
     <div className="panel span-2">
       <h2>Config health</h2>
-      <p className="why">Post-deploy health per org from the drift probe. A verdict with no fresh check reads <strong>Unknown</strong>, never green. {records ? "" : "Loading…"}</p>
+      <p className="why"><strong>Modelled</strong> post-deploy health per org — no live Salesforce; maintained by the writeback job. A verdict with no fresh check reads <strong>Unknown</strong>, never green. {records ? "" : "Loading…"}</p>
       {records && (
         <div className="donut-row">
           <Donut slices={slices} center={{ v: ods.length ? `${Math.round(healthy / ods.length * 100)}%` : "—", k: "healthy" }} />
           <div className="legend">
             {slices.map((s) => <div key={s.label} className="leg-item"><span className="leg-sw" style={{ background: s.color }} />{s.label} <span className="tnum">{s.value}</span></div>)}
-            <div className="leg-item" style={{ marginTop: "0.3rem", color: "var(--muted)" }}>CI-written: <span className="tnum">{ciSourced}/{ods.length}</span> · stale: <span className="tnum">{stale}</span></div>
+            <div className="leg-item" style={{ marginTop: "0.3rem", color: "var(--muted)" }}>model-refreshed: <span className="tnum">{modelRefreshed}/{ods.length}</span> · stale: <span className="tnum">{stale}</span></div>
           </div>
         </div>
       )}

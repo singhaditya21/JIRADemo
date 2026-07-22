@@ -10,9 +10,10 @@ and model carries `preview: false`, so the lens drops its "preview — not live"
 What is real vs. not, stated honestly (the lens shows this too):
   - the request, its stage/status, squad, priority, dates, CAB, agent-action ledger,
     and the five-stage funnel are REAL Jira data;
-  - per-org deploy state + config health come from the Org Deploy sub-tasks; until a
-    real CI/CD writeback + drift probe run, those carry Source = "Seeded" (the health
-    board splits CI-written vs seeded so this is visible, never hidden).
+  - per-org deploy state + config health are MODELLED — there is no live Salesforce,
+    so these are illustrative values maintained on the Org Deploy sub-tasks by the
+    writeback job (app/sfc_writeback), Source = "Modelled" with a real Health Checked
+    At; the staleness guard is real (a stale cell reads Unknown, never green).
 
 Schema parity with app/sfc_seed.py is the contract; if you change one, change both.
 
@@ -148,8 +149,8 @@ def _iso(dt):
 
 def _org_from_summary(summary):
     """Org Deploy sub-tasks are titled 'Deploy to {org} — {parentKey}'. The org is not
-    stored in a field on the seeded sub-tasks, so recover it from the summary. A real
-    CI writeback would set it explicitly; until then this is the only carrier."""
+    stored in a field on the sub-tasks, so recover it from the summary (the summary is
+    the only carrier of which org a sub-task targets)."""
     if summary and summary.startswith("Deploy to "):
         return summary[len("Deploy to "):].rsplit(" — ", 1)[0].strip()
     return None
@@ -304,11 +305,12 @@ def _model(records, days, now, generated_at):
                                           now.strftime("%d %b %Y")),
         "volume": len(in_window), "scoreboard": _scoreboard(in_window), "warnings": [],
         "note": ("Live SFC Jira data. The stage/funnel, squad, CAB and agent-action "
-                 "ledger are real; per-org deploy state & config health are written back "
-                 "to the Org Deploy sub-tasks by the CI/CD pipeline (app/sfc_writeback), "
-                 "Source = CI writeback, stamped each run. The Salesforce drift probe is "
-                 "simulated until SF credentials are configured; the health board shows "
-                 "Source per cell, so this is visible."),
+                 "ledger are real Jira data. Per-org deploy state & config health are "
+                 "MODELLED — DeliveryIQ tracks Salesforce config requests as Jira issues "
+                 "and there is no live Salesforce connection; the writeback job "
+                 "(app/sfc_writeback) maintains them on the Org Deploy sub-tasks with a "
+                 "real Health Checked At (Source = Modelled). The staleness guard is "
+                 "real, so a lapsed cell reads Unknown, never green."),
     }
 
 

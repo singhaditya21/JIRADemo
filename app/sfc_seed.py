@@ -100,19 +100,19 @@ def build(n, days, now):
                 dstate = rnd.choice(["Validated", "Deploying"])
             else:
                 dstate = rnd.choices(["Deployed", "Deployed", "Failed", "Rolled back"], weights=[7, 6, 2, 1])[0]
-            # health only meaningful once deployed; probe writeback → REAL source
+            # Health only meaningful once deployed. No live Salesforce: deploy/health are
+            # MODELLED — a deployed org's cell reads Source "Modelled" (maintained by the
+            # writeback job), a not-started org stays "Seeded" (raw fixture).
             if dstate == "Deployed":
                 health = rnd.choices(["Healthy", "Healthy", "Degraded", "Failing"], weights=[7, 6, 3, 1])[0]
                 checked = (resolved or now) - timedelta(hours=rnd.uniform(0, 30))
-                hsrc = "CI writeback"
             elif dstate in ("Failed", "Rolled back"):
                 health = "Failing"
                 checked = now - timedelta(hours=rnd.uniform(0, 48))
-                hsrc = "CI writeback"
             else:
-                health, checked, hsrc = "Unknown", None, "Seeded"
+                health, checked = "Unknown", None
             org_deploys.append({"org": org, "deploy_state": dstate, "config_health": health,
-                                "health_checked_at": _iso(checked), "source": ("CI writeback" if dstate not in ("Not started",) else "Seeded")})
+                                "health_checked_at": _iso(checked), "source": ("Modelled" if dstate not in ("Not started",) else "Seeded")})
 
         # roll-ups
         states = [d["deploy_state"] for d in org_deploys]

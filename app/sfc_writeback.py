@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
-"""DeliveryIQ CI/CD writeback + Salesforce drift probe for the SFC lens.
+"""DeliveryIQ writeback: maintain the modelled per-org deploy state + config health.
 
-Runs in CI (holding the Jira token), enumerates the "Org Deploy" sub-tasks under each
-Salesforce Config Request, PROBES each target org's deploy status + config health, and
-WRITES the result back to Jira — Deploy State, Config Health, a fresh Health Checked At,
-and Deploy Source = "CI writeback". That is what turns those cells from a fixture
-placeholder into pipeline-owned data with a real, recent timestamp; the lens's health
-board already splits CI-written vs seeded, so the change shows with no app edit.
+There is NO live Salesforce in this deployment — by design, DeliveryIQ tracks Salesforce
+config requests as Jira issues (that was the agreed scope). So per-org deploy state and
+config health are MODELLED, not real Salesforce telemetry. This job is the mechanism
+that maintains them: it runs in CI (holding the Jira token), enumerates the "Org Deploy"
+sub-tasks under each Salesforce Config Request, computes each org's modelled deploy state
++ config health, and WRITES them back to Jira — Deploy State, Config Health, a fresh
+Health Checked At, and Deploy Source = "Modelled".
 
-THE PROBE IS A SEAM (`probe_org`). With no Salesforce credentials configured it runs a
-DETERMINISTIC SIMULATION: the WRITEBACK is real (real Jira mutations, real timestamps),
-but the health VALUES are modelled until the real API is wired — and this is stated in
-the run log and the lens note, never hidden. To go fully live:
-  1. Add repo secrets SF_INSTANCE_URL / SF_CLIENT_ID / SF_CLIENT_SECRET (see SF_ENV).
-  2. Replace probe_org()'s body with real calls:
-       - Salesforce Tooling API: the DeployRequest status  -> deploy_state
-       - a metadata retrieve + diff (drift check)          -> config_health
-Nothing else changes — the same four fields are written the same way, and Source stays
-"CI writeback" (it already was a CI writeback; now the probe behind it is real too).
+What is real vs. modelled, stated plainly (the lens says the same):
+  - REAL: the writeback itself (real Jira mutations), and the Health Checked At timestamp
+    it stamps each run — so the health board's freshness/staleness signal is genuine.
+  - MODELLED: the deploy-state and config-health VALUES (deploy_health_model()). There is
+    no Salesforce to observe; these are illustrative. The Source = "Modelled" badge and
+    the lens note make that explicit — it is never dressed up as a live read.
+
+If a real Salesforce org is ever connected, deploy_health_model() is the single seam to
+replace with real Tooling/Metadata API calls; write Deploy Source = "CI writeback" then
+so the board can distinguish observed data from the model. Nothing else changes.
 
 Dry-run-first: --dry-run logs every write and mutates nothing. The token is CI-only, so
 run this via .github/workflows/sfc-writeback.yml (dry_run defaults true).
@@ -32,46 +33,32 @@ Python 3.9. %-formatting, no f-strings with backslashes.
 
 import argparse
 import hashlib
-import os
 from datetime import datetime, timezone
 
 from shared.jira_client import Jira, log, require_env
 from app.sfc_export import (resolve_fields, _fetch_all, _org_from_summary,
                             REQUEST_TYPE, SUBTASK_TYPE)
 
-# Deploy states that mean a deployment has actually occurred, so there is something to
-# probe. "Not started" orgs are left untouched (and read Source = Seeded) — a real
-# pipeline would have no deploy record for them either.
+WRITEBACK_SOURCE = "Modelled"   # no live Salesforce -> values are modelled, labelled so
+
+# Deploy states that mean a deployment has occurred, so there is a health to model.
+# "Not started" orgs are left untouched (Source = Seeded) — nothing has shipped there.
 DEPLOYED_STATES = {"Validated", "Deploying", "Deployed", "Failed", "Rolled back"}
 
-# Presence of ALL of these switches probe_org from simulated to a real Salesforce call.
-SF_ENV = ("SF_INSTANCE_URL", "SF_CLIENT_ID", "SF_CLIENT_SECRET")
 
+def deploy_health_model(parent_status, current_state, org, key):
+    """Return (deploy_state, config_health) for one org — MODELLED, not observed.
 
-def sf_creds_present():
-    return all(os.environ.get(v) for v in SF_ENV)
-
-
-def probe_org(parent_status, current_state, org, key, real):
-    """Return (deploy_state, config_health) for one org.
-
-    SEAM: when `real` is True, call Salesforce here (Tooling API DeployRequest status +
-    a metadata drift check) and return the observed values. The default path below is a
-    DETERMINISTIC SIMULATION — same input always yields the same output, so a re-run is
-    stable — that advances a completed deploy and runs a plausible drift check.
+    Deterministic (hash of key|org, no RNG) so a re-run is stable. There is no
+    Salesforce to read; this is the illustrative model behind the demo. If a real org
+    is ever wired, replace this body with the Salesforce Tooling/Metadata API calls.
     """
-    if real:
-        # SEAM — implement with the Salesforce APIs. Until then we never reach here
-        # because sf_creds_present() gates it; kept explicit so the contract is obvious.
-        raise NotImplementedError(
-            "Real Salesforce probe not implemented. Wire the Tooling/Metadata API here.")
-
     h = int(hashlib.sha1(("%s|%s" % (key, org)).encode()).hexdigest()[:8], 16) / float(0xFFFFFFFF)
     state = current_state
     # A request that has reached Deployed/Audit/Done means every in-flight org landed.
     if parent_status in ("Deployed", "Audit", "Done") and current_state in ("Validated", "Deploying"):
         state = "Deployed"
-    # Drift probe: health only means something once deployed.
+    # Health only means something once deployed.
     if state == "Deployed":
         health = "Healthy" if h < 0.72 else "Degraded" if h < 0.92 else "Failing"
     elif state in ("Failed", "Rolled back"):
@@ -105,9 +92,8 @@ def main(argv=None):
         raise SystemExit("SFC not provisioned — missing fields: %s. Run "
                          "jira_config.sfc_build first." % ", ".join(missing))
 
-    real = sf_creds_present()
-    log("probe mode: %s" % ("REAL Salesforce (SF_* secrets present)" if real else
-        "SIMULATED (no SF_* creds — the Jira writeback is real; health values are modelled)"))
+    log("no live Salesforce — deploy state & config health are MODELLED (the writeback "
+        "to Jira and the Health Checked At timestamp are real; the values are illustrative)")
 
     raw = _fetch_all(j, F)
     parent_status, subtasks = {}, []
@@ -129,14 +115,14 @@ def main(argv=None):
         org = _org_from_summary(f.get("summary")) or "?"
         cur = _cur_state(f, F)
         if cur not in DEPLOYED_STATES:
-            skipped += 1                 # nothing deployed to this org yet -> nothing to probe
+            skipped += 1                 # nothing shipped to this org yet -> nothing to model
             continue
-        state, health = probe_org(parent_status.get(parent), cur, org, parent or key, real)
+        state, health = deploy_health_model(parent_status.get(parent), cur, org, parent or key)
         fields = {
             F["Deploy State"]: {"value": state},
             F["Config Health"]: {"value": health},
             F["Health Checked At"]: checked,
-            F["Deploy Source"]: {"value": "CI writeback"},
+            F["Deploy Source"]: {"value": WRITEBACK_SOURCE},
         }
         if args.dry_run:
             log("  [dry] %s (%s): %s / %s @ %s" % (key, org, state, health, checked))
@@ -149,12 +135,12 @@ def main(argv=None):
             failed += 1
             log("  ! %s: %s" % (key, str(e)[:140]))
 
-    verb = "would be written [DRY RUN]" if args.dry_run else "written (Source=CI writeback)"
+    verb = ("would be written [DRY RUN]" if args.dry_run
+            else "written (Source=%s)" % WRITEBACK_SOURCE)
     log("\n%d org-deploy sub-task(s) %s, %d skipped (not deployed), %d failed"
         % (written, verb, skipped, failed))
-    if not real:
-        log("NOTE: health values are SIMULATED. Add SF_* secrets + implement probe_org() "
-            "for a real Salesforce deploy-status + drift probe.")
+    log("NOTE: deploy state & config health are MODELLED (no live Salesforce). The Health "
+        "Checked At stamp is real, so the health board's staleness signal is genuine.")
 
 
 if __name__ == "__main__":

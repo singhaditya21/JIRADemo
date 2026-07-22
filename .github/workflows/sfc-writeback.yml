@@ -1,22 +1,22 @@
-name: SF Config — CI/CD deploy writeback + drift probe
+name: SF Config — deploy/health writeback (modelled)
 
-# The DeliveryIQ CI/CD writeback (app/sfc_writeback.py): probes each target org's deploy
-# status + config health and WRITES it back onto the SFC "Org Deploy" sub-tasks in Jira
-# (Deploy State, Config Health, a fresh Health Checked At, Deploy Source = "CI writeback").
-# This is what flips those cells from a fixture placeholder to pipeline-owned data with a
-# real, recent timestamp — the lens's health board already splits CI-written vs seeded.
+# The DeliveryIQ writeback (app/sfc_writeback.py). There is NO live Salesforce — DeliveryIQ
+# tracks Salesforce config requests as Jira issues — so per-org deploy state + config health
+# are MODELLED. This job maintains them: it models each org's deploy state + config health
+# and WRITES them onto the SFC "Org Deploy" sub-tasks (Deploy State, Config Health, a fresh
+# Health Checked At, Deploy Source = "Modelled"). The writeback to Jira and the timestamp are
+# real, so the health board's freshness/staleness signal is genuine; the values are
+# illustrative and labelled "Modelled" per cell — never dressed up as a live read.
 #
 # It MUTATES Jira, so it only runs when you trigger it by hand and DEFAULTS TO A DRY RUN.
 # Uncheck dry_run to actually write. The token stays a CI secret.
 #
-# PROBE: with no SF_* secrets set, the probe is a deterministic SIMULATION (the writeback
-# is real; the health values are modelled — the run log and the lens say so). To make it
-# fully live, add repo secrets SF_INSTANCE_URL / SF_CLIENT_ID / SF_CLIENT_SECRET and
-# implement probe_org() against the Salesforce Tooling/Metadata API — no other change.
+# If a real Salesforce org is ever connected, replace deploy_health_model() with the
+# Tooling/Metadata API calls and write Source = "CI writeback" so the board can tell observed
+# data from the model — no other change.
 #
-# Not scheduled by default: a job that silently mutates Jira on a timer is a standing
-# side effect. If you want it periodic once the real probe is wired, add a `schedule:`
-# cron here (e.g. every 30 min, matching the Pages bake).
+# Not scheduled by default: a job that silently mutates Jira on a timer is a standing side
+# effect. Add a `schedule:` cron here if you want the model refreshed periodically.
 
 on:
   workflow_dispatch:
@@ -37,18 +37,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Probe + write deploy state / config health back to Jira
-        # SECURITY: inputs pass through env and are read as shell vars, never
+      - name: Model + write deploy state / config health onto the Jira sub-tasks
+        # SECURITY: the input passes through env and is read as a shell var, never
         # ${{ }}-interpolated into the token-bearing step. The dry gate is a bash `case`
-        # on the string (not a GH ${{ == }} ternary). SF_* are optional — absent means
-        # the simulated probe; present means probe_org() calls the real Salesforce API.
+        # on the string (not a GH ${{ == }} ternary).
         env:
           JIRA_SITE: ${{ secrets.JIRA_SITE }}
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
           JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
-          SF_INSTANCE_URL: ${{ secrets.SF_INSTANCE_URL }}
-          SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID }}
-          SF_CLIENT_SECRET: ${{ secrets.SF_CLIENT_SECRET }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
