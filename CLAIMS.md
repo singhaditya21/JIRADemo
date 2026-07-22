@@ -451,3 +451,11 @@ subset was shipped rather than a fabricated metric.
 | # | Claim | Status | Evidence |
 |---|---|---|---|
 | 152 | The roadmap's specific ITSM chart forms are now built (box-plot, dot-plot, donut) | ✅ VERIFIED 2026-07-22 | Three new inline-SVG primitives in charts.jsx (BoxPlot, DotPlot, Donut — no chart library) and wired into ITSM panels, verified live on ITSM Overview, zero console errors: **MTTR box-plot by priority** in IncidentManagement (roadmap 1.2 — real per-priority resolved-reported distributions: P1 median 0.1d n20, P2 0.2d n41, P3 0.7d n94, P4 1.3d n60, with Q1/median/Q3 box + min/max whiskers); **SLA attainment dot-plot** in SlaByType (roadmap 5 — each work type as a dot on a shared 0–100% axis against the 95% target line, met/breached colour, clickable to drill); **channel-mix deflection donut** in RequestFulfilment (roadmap 2.4 — Portal 53 / Email 27 / Chat 14 / Monitoring 14, portal-share % center label, legend). Converts several Part V "partials" (metric present, wrong viz) to the specified forms. |
+
+
+## Roadmap push — Batch C: OPS cross-cuts + drill polish (Part IV/III) — 2026-07-22
+
+| # | Claim | Status | Evidence |
+|---|---|---|---|
+| 153 | OPS advanced cross-cuts are built: two heatmaps + analyst load | ✅ VERIFIED 2026-07-22 | Record-driven OPS panels wired into OPS Overview/L1/L2, verified live, zero console errors: **Escalation reason × tower** heatmap (roadmap C6 — 6 reasons × 6 towers = 36 cells, tower-abbreviation legend, each cell drills to the matching L2 records + JQL); **Intake mix by tower** heatmap (roadmap A4 — 4 channels × 6 towers = 24 cells, drillable); **Analyst load** bar (roadmap H1 — tickets touched per analyst L1/L2, 23 analysts, drillable). Converts several Part IV not-live cross-cuts to live. |
+| 154 | The record drill gained a visual status-flow ribbon (drill layer d) | ✅ VERIFIED 2026-07-22 | RecordDetail now renders a tier-coloured **status-flow ribbon** above the transition list — verified live on a record showing New → Triage → In Progress L1 → Resolved (L1 nodes blue, terminal green). Honest by construction: labelled "records order, not per-step wall-clock" because the seed collapses per-transition timestamps, so it shows real sequence + tier crossings without fabricating durations. Advances ROADMAP Part III layer (d). |

@@ -5,7 +5,7 @@ import { KpiStrip, PairingPanel, Analysts, KBGap, Towers, Intake, Ageing,
   MajorIncident, TierFlow, PracticeMix, IncidentManagement, ChangeManagement,
   ProblemManagement, RequestFulfilment, SlaByType, CustomerSatisfaction,
   SnapshotTrends, BenchmarkLeague, WhatChanged, AnomalyWatch, Recommendations,
-  Forecast, CriteriaScorecard } from "./panels.jsx";
+  Forecast, CriteriaScorecard, EscalationReasonMatrix, IntakeByTower, AnalystLoad } from "./panels.jsx";
 import { Drawer } from "./drill.jsx";
 
 const PROJECTS = ["OPS", "ITSM"];
@@ -30,9 +30,11 @@ function lensPanels(lens, project, model, open, records, history) {
     ...(itsm ? [<IncidentManagement key="im" {...R} />, <RequestFulfilment key="rf" {...R} />, <CustomerSatisfaction key="csat" {...R} />] : []),
     <PairingPanel key="pair" {...P} />,
     <Analysts key="an" {...P} />,
+    <AnalystLoad key="al" {...R} />,
     <ImpactUrgency key="iu" {...R} />,
     <KBGap key="kb" {...P} lens="L1" />,
     <ChannelQuality key="ch" {...P} />,
+    <IntakeByTower key="ibt" {...R} />,
     <Intake key="in" {...P} />,
   ];
   if (lens === "L2") return [
@@ -43,6 +45,7 @@ function lensPanels(lens, project, model, open, records, history) {
             : [<TierFlow key="tf" {...R} />]),
     <KBGap key="kb" {...P} lens="L2" />,
     <EscalationReasons key="er" {...P} />,
+    ...(itsm ? [] : [<EscalationReasonMatrix key="erm" {...R} />]),
     <MajorIncident key="mi" {...R} />,
     <Towers key="tw" {...P} />,
     <AgeingByStatus key="abs" {...P} />,
@@ -62,7 +65,8 @@ function lensPanels(lens, project, model, open, records, history) {
          <ChangeManagement key="cm" {...R} />, <ProblemManagement key="pm" {...R} />,
          <RequestFulfilment key="rf" {...R} />, <CustomerSatisfaction key="csat" {...R} />,
          <SlaByType key="sbt" {...R} />]
-      : [<TierFlow key="tf" {...R} />, <ImpactUrgency key="iu" {...R} />, <MajorIncident key="mi" {...R} />]),
+      : [<TierFlow key="tf" {...R} />, <ImpactUrgency key="iu" {...R} />, <MajorIncident key="mi" {...R} />,
+         <EscalationReasonMatrix key="erm" {...R} />, <IntakeByTower key="ibt" {...R} />, <AnalystLoad key="al" {...R} />]),
     <PairingPanel key="pair" {...P} />,
     <Analysts key="an" {...P} />,
     <SlaOutcomes key="sla" {...P} />,

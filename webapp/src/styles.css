@@ -223,6 +223,16 @@ tr.clickable:hover td { background: var(--accent-dim); }
 .int-v { font-size: 1.1rem; font-weight: 650; }
 .int-note { font-size: 0.72rem; color: var(--muted); }
 
+/* Record status-flow ribbon (drill layer d) */
+.ribbon { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin: 0.3rem 0 0.7rem; }
+.ribbon-arrow { color: var(--muted); font-size: 0.8rem; }
+.ribbon-node { font-size: 0.72rem; padding: 0.2rem 0.5rem; border-radius: 3px; background: var(--raised);
+  border-left: 3px solid var(--accent); white-space: nowrap; }
+.ribbon-node.t-L1 { border-left-color: var(--accent); }
+.ribbon-node.t-L2 { border-left-color: var(--warn); }
+.ribbon-node.t-wait { border-left-color: var(--muted); }
+.ribbon-node.t-done { border-left-color: var(--ok); }
+
 /* ITSM chart forms (Part V) */
 .chart-lab { font-family: var(--mono); font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.03em;
   color: var(--muted); margin-bottom: 0.3rem; }

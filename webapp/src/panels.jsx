@@ -1004,6 +1004,63 @@ export function SnapshotTrends({ history }) {
   );
 }
 
+// ==== Part IV — OPS cross-cuts (heatmaps, analyst load, flow balance) ==================
+const TOWER_SHORT = { "End User Computing": "EUC", "Enterprise Applications": "ENT", "Network & Connectivity": "NET", "Cloud & Security": "SEC", "Compute & Storage": "CMP", "Database": "DB" };
+const shortTower = (t) => TOWER_SHORT[t] || (t || "").slice(0, 4);
+
+// Escalation reason × tower — which reasons cluster where (roadmap C6). A single reason bar
+// can't show that "elevated access" lives in one tower while "vendor" lives in another.
+export function EscalationReasonMatrix({ model, records, open }) {
+  const rows = inWindow(records, model).filter((r) => r.is_escalated && r.escalation_reason);
+  const reasons = [...new Set(rows.map((r) => r.escalation_reason))];
+  const towers = [...new Set(rows.map((r) => r.tower).filter(Boolean))];
+  const colOf = Object.fromEntries(towers.map((t) => [shortTower(t), t]));
+  const cell = (reason, sc) => ({ value: rows.filter((r) => r.escalation_reason === reason && r.tower === colOf[sc]).length });
+  return (
+    <div className="panel span-2">
+      <h2>Escalation reason × tower</h2>
+      <p className="why">Which escalation reasons cluster in which tower — the pattern a flat reason list hides. Darker = more. {records ? "" : "Loading…"} <span className="hint">Click a cell.</span></p>
+      {records && <Heatmap rows={reasons} cols={towers.map(shortTower)} w={640} labW={168} cell={cell}
+        onPick={(reason, sc, d) => open({ type: "records", label: `${reason} · ${colOf[sc]}`, pred: (r) => r.is_escalated && r.escalation_reason === reason && r.tower === colOf[sc], reconcile: d.value, jql: `project = OPS AND "Support Tier" = L2 AND "Escalation Reason" = "${reason}" AND Tower = "${colOf[sc]}"` })} />}
+      <p className="chart-lab" style={{ marginTop: "0.3rem" }}>{towers.map((t) => `${shortTower(t)} = ${t}`).join("  ·  ")}</p>
+    </div>
+  );
+}
+
+// Intake channel × tower — where demand enters, by tower (roadmap A4).
+export function IntakeByTower({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const chans = [...new Set(rows.map((r) => r.intake).filter(Boolean))];
+  const towers = [...new Set(rows.map((r) => r.tower).filter(Boolean))];
+  const colOf = Object.fromEntries(towers.map((t) => [shortTower(t), t]));
+  const cell = (chan, sc) => ({ value: rows.filter((r) => r.intake === chan && r.tower === colOf[sc]).length });
+  return (
+    <div className="panel span-2">
+      <h2>Intake mix by tower</h2>
+      <p className="why">How demand enters each tower — some run on the portal, some on monitoring. Darker = more. {records ? "" : "Loading…"} <span className="hint">Click a cell.</span></p>
+      {records && <Heatmap rows={chans} cols={towers.map(shortTower)} w={640} labW={110} cell={cell}
+        onPick={(chan, sc, d) => open({ type: "records", label: `${chan} · ${colOf[sc]}`, pred: (r) => r.intake === chan && r.tower === colOf[sc], reconcile: d.value, jql: `project = OPS AND "Intake Channel" = "${chan}" AND Tower = "${colOf[sc]}"` })} />}
+      <p className="chart-lab" style={{ marginTop: "0.3rem" }}>{towers.map((t) => `${shortTower(t)} = ${t}`).join("  ·  ")}</p>
+    </div>
+  );
+}
+
+// Analyst load — tickets handled per analyst (roadmap H1), the capacity view.
+export function AnalystLoad({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const load = {};
+  for (const r of rows) for (const a of [r.l1_analyst, r.l2_analyst]) if (a) load[a] = (load[a] || 0) + 1;
+  const bars = Object.entries(load).sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value }));
+  return (
+    <div className="panel">
+      <h2>Analyst load</h2>
+      <p className="why">Tickets touched per analyst (L1 or L2) in the window — the capacity picture behind the rates. {records ? "" : "Loading…"} <span className="hint">Click an analyst.</span></p>
+      {records && <Bars rows={bars} barH={16}
+        onPick={(b) => open({ type: "records", label: `Handled by ${b.label}`, pred: (r) => r.l1_analyst === b.label || r.l2_analyst === b.label, reconcile: b.value })} />}
+    </div>
+  );
+}
+
 // ---- OPS tier-flow / ping-pong (theme D) from the changelog timelines ------------------
 export function TierFlow({ model, records, open }) {
   const rows = inWindow(records, model);

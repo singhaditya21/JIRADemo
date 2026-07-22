@@ -1,6 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { Sparkline, Bars } from "./charts.jsx";
 
+// Tier bucket for the status-flow ribbon colour — works on OPS and ITSM status names.
+const rdTier = (s) => {
+  const x = (s || "").toLowerCase();
+  if (/resolved|closed|cancel|done|complete/.test(x)) return "done";
+  if (/wait|pending|hold|awaiting/.test(x)) return "wait";
+  if (/l2|escalat|implement|\bcab\b|approval|problem/.test(x)) return "L2";
+  return "L1";
+};
+
 // Drill-down detail. Clicking any chart element opens this drawer with the numbers behind
 // the mark and a deep link into Jira's issue navigator. The link JQL uses cf[<id>] clause
 // names (this instance's custom-field ids) so it resolves even where a field name is
@@ -420,6 +429,7 @@ function RecordDetail({ record, onBack }) {
     ["Reopened", record.reopened], ["Root cause", record.root_cause], ["Resolution", record.resolution_code],
   ].filter(([, v]) => v != null && v !== "");
   const hops = (record.timeline || []).filter((c) => c.field === "status");
+  const path = hops.length ? [hops[0].from, ...hops.map((h) => h.to)].filter(Boolean) : [];
   return (
     <div className="rd">
       <button className="rl-back" onClick={onBack}>← records</button>
@@ -427,7 +437,15 @@ function RecordDetail({ record, onBack }) {
       <KV rows={fields} />
       {hops.length > 0 && (
         <>
-          <p className="drill-note">Status timeline — {record.changelog_hops} changes in history:</p>
+          <p className="drill-note">Status flow — {record.changelog_hops} transitions (tier-coloured; the seed records order, not per-step wall-clock):</p>
+          <div className="ribbon">
+            {path.map((s, i) => (
+              <React.Fragment key={i}>
+                {i > 0 && <span className="ribbon-arrow">→</span>}
+                <span className={"ribbon-node t-" + rdTier(s)}>{s}</span>
+              </React.Fragment>
+            ))}
+          </div>
           <ol className="rd-timeline">
             {hops.map((c, i) => (
               <li key={i}><span className="rd-when">{c.at ? new Date(c.at).toLocaleDateString() : ""}</span>{c.from} <b>→</b> {c.to}</li>
