@@ -17,11 +17,13 @@ on:
   push:
     branches: [main]
   schedule:
-    # Once per 24 hours (06:00 UTC). The seeded tower changes slowly, so a daily refresh
-    # keeps the published page aligned with Jira without churn. GitHub may delay scheduled
-    # runs by a few minutes under load. Tighten this if you want fresher data (the repo is
-    # public, so Actions minutes are unlimited).
-    - cron: "0 6 * * *"
+    # Every 30 minutes — the roadmap's "near-real-time (15–30 min)" bar, achieved on a static
+    # host by baking often rather than running a live backend. The repo is public so Actions
+    # minutes are unlimited; 2 builds/hour stays well under GitHub Pages' rate limit. GitHub may
+    # delay scheduled runs under load. The app also re-polls every 5 min, so a left-open tab
+    # picks up each redeploy. (Snapshot history is date-keyed, so this still appends one point
+    # per day, not one per bake.)
+    - cron: "*/30 * * * *"
   workflow_dispatch: {}
 
 permissions:

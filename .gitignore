@@ -33,3 +33,4 @@ webapp/.vite/
 # Glob the contents (not the dir) so the negation below can re-include the history files.
 webapp/public/data/*
 !webapp/public/data/*-history.json
+!webapp/public/data/*-baseline.json

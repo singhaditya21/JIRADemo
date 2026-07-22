@@ -126,6 +126,15 @@ def _record(issue, alias):
     r["reported_at"] = issue.reported_at.isoformat() if issue.reported_at else None
     r["reported_ts"] = _ts(issue.reported_at)
     r["resolved_at"] = issue.resolved_at.isoformat() if issue.resolved_at else None
+    # REAL seeded lifecycle timestamps (not the collapsed changelog) — these unlock genuine
+    # timing metrics: escalation latency, L1/L2 dwell, OLA handoff, MTTA-by-priority, RCA cycle.
+    r["first_response_at"] = issue.first_response_at.isoformat() if issue.first_response_at else None
+    r["escalated_at"] = issue.escalated_at.isoformat() if issue.escalated_at else None
+    _h = lambda a, b: round((b - a).total_seconds() / 3600.0, 3) if a and b else None
+    r["escalation_latency_h"] = _h(issue.reported_at, issue.escalated_at)   # reported -> escalated
+    r["l2_dwell_h"] = _h(issue.escalated_at, issue.resolved_at)             # L2 time after handoff
+    r["ola_handoff_h"] = _h(issue.first_response_at, issue.escalated_at)    # first response -> escalation
+    r["ttr_h"] = _h(issue.reported_at, issue.resolved_at)                   # end-to-end resolution
     r["csat"] = _csat_rating(issue)                    # modelled proxy (see _csat_rating)
     r["links"] = issue.links or []                      # issue links (Problem/Incident etc.)
     cl = issue.changelog or ()
@@ -177,6 +186,19 @@ def _append_history(out_dir, project, point):
     return len(hist)
 
 
+def _freeze_baseline(out_dir, project, snapshot, generated_at):
+    """Freeze the FIRST full-window bake as the pilot baseline (roadmap 6.3). Written once and
+    never overwritten, so 'baseline → current → target' framing has a fixed reference point."""
+    path = out_dir / f"{project}-baseline.json"
+    if path.exists():
+        return False
+    sb = snapshot.get("scoreboard") or {}
+    keys = ("ftr_pct", "escalation_pct", "reopen_pct", "sla_pct", "response_pct", "aged_14d")
+    point = {"frozen_at": generated_at, **{k: (sb.get(k) or {}).get("value") for k in keys}}
+    path.write_text(json.dumps({"project": project, "baseline": point}, separators=(",", ":"), default=str))
+    return True
+
+
 def export(out_dir, day_windows):
     require_env()                                     # clear message if a secret is missing
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -215,6 +237,9 @@ def export(out_dir, day_windows):
             hn = _append_history(out_dir, project, _history_point(snapshot, generated_at))
             index.setdefault("history_files", {})[project] = f"{project}-history.json"
             print(f"  + {project}-history.json  ({hn} point(s))")
+            if _freeze_baseline(out_dir, project, snapshot, generated_at):
+                print(f"  + {project}-baseline.json  (pilot baseline frozen)")
+            index.setdefault("baseline_files", {})[project] = f"{project}-baseline.json"
             # one record file per project (all issues); the client windows it per view
             records = [_record(i, alias) for i in st.issues]
             rname = f"{project}-records.json"
