@@ -444,6 +444,188 @@ export function IntegrityStrip({ model }) {
   );
 }
 
+// ==== Part VI — Insights & Intelligence layer =========================================
+// All model-only (no new data): a benchmark league, a day-over-day digest, weekly anomaly
+// detection, prescriptive actions, a linear forecast, and the computed pilot scorecard.
+const BETTER = { ftr_pct: "up", sla_pct: "up", response_pct: "up", escalation_pct: "down", reopen_pct: "down", aged_14d: "down" };
+const completeWeeks = (model) => (model.weekly || []).filter((w) => [w.ftr_pct, w.escalation_pct, w.sla_pct, w.response_pct].some((v) => v != null));
+const meanArr = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+const sdArr = (xs) => { if (xs.length < 2) return null; const m = meanArr(xs); return Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / (xs.length - 1)); };
+const isImproving = (key, d) => (d === 0 ? null : BETTER[key] === "up" ? d > 0 : d < 0);
+const kpiFmt = (key, v) => (v == null ? "—" : key === "aged_14d" ? `${Math.round(v)}` : `${f1(v)}%`);
+
+// Every tower vs the BEST tower on a chosen KPI — the internal benchmark, no external data.
+export function BenchmarkLeague({ model, open }) {
+  const towers = (model.towers || []).filter((t) => t.known !== false && t.volume);
+  const [metric, setMetric] = useState("sla_pct");
+  const dir = BETTER[metric];
+  const vals = towers.map((t) => t[metric]).filter((v) => v != null);
+  if (!vals.length) return null;
+  const best = dir === "up" ? Math.max(...vals) : Math.min(...vals);
+  const bestTower = towers.find((t) => t[metric] === best);
+  const rows = towers.map((t) => ({ t, v: t[metric], gap: t[metric] == null ? null : Math.abs(t[metric] - best) }))
+    .sort((a, b) => (b.gap ?? -1) - (a.gap ?? -1));
+  const maxGap = Math.max(0.01, ...rows.map((r) => r.gap || 0));
+  const opts = [["sla_pct", "SLA"], ["ftr_pct", "FTR"], ["escalation_pct", "Escalation"]];
+  return (
+    <div className="panel">
+      <h2>Tower league — gap to best</h2>
+      <p className="why">Every tower against the <strong>best tower</strong> on this metric (the internal benchmark). Biggest gap first — where a point of improvement is cheapest. <span className="hint">Click a tower.</span></p>
+      <div className="seg seg-sm">{opts.map(([k, lab]) => <button key={k} className={k === metric ? "on" : ""} onClick={() => setMetric(k)}>{lab}</button>)}</div>
+      <div className="scrollx"><table className="league">
+        <thead><tr><th>Tower</th><th className="num">{opts.find((o) => o[0] === metric)[1]}</th><th>Gap to best</th></tr></thead>
+        <tbody>{rows.map((r) => (
+          <tr key={r.t.tower} className="clickable" onClick={() => open({ type: "tower", row: r.t })}>
+            <td>{r.t.tower}{r.t.tower === bestTower?.tower && <span className="best-tag">best</span>}</td>
+            <td className="num tnum">{pct(r.v)}</td>
+            <td><div className="gap-bar"><span style={{ width: `${(r.gap || 0) / maxGap * 100}%` }} /><em>{r.gap ? `${f1(r.gap)} pts` : "—"}</em></div></td>
+          </tr>
+        ))}</tbody>
+      </table></div>
+    </div>
+  );
+}
+
+// Day-over-day digest from the committed daily snapshots (roadmap 6.5).
+export function WhatChanged({ history }) {
+  const pts = history || [];
+  const enough = pts.length >= 2;
+  const prev = enough ? pts[pts.length - 2] : null, last = enough ? pts[pts.length - 1] : null;
+  const rows = enough ? METRICS.map((m) => ({ m, d: (last[m.key] ?? 0) - (prev[m.key] ?? 0) }))
+    .filter((r) => Math.abs(r.d) >= (r.m.key === "aged_14d" ? 1 : 0.05))
+    .sort((a, b) => Math.abs(b.d) - Math.abs(a.d)) : [];
+  return (
+    <div className="panel">
+      <h2>What changed{enough ? ` since ${prev.date}` : ""}</h2>
+      <p className="why">Movement between the two most recent daily snapshots — the deltas the within-window sparklines can't show.</p>
+      {!enough ? <p className="hint">Needs ≥2 daily snapshots ({pts.length} so far — it fills as the scheduled bake runs).</p>
+        : rows.length === 0 ? <ul className="insights"><li className="insight ok"><span className="ins-dot" />No material change since {prev.date} — every headline held steady.</li></ul>
+          : <ul className="insights">{rows.map((r, i) => (
+            <li key={i} className={"insight " + (isImproving(r.m.key, r.d) ? "ok" : "warn")}><span className="ins-dot" />
+              {r.m.lab} {r.d > 0 ? "▲" : "▼"} {kpiFmt(r.m.key, Math.abs(r.d))}{r.m.unit === "%" ? " pts" : ""} ({kpiFmt(r.m.key, prev[r.m.key])} → {kpiFmt(r.m.key, last[r.m.key])})
+            </li>))}</ul>}
+    </div>
+  );
+}
+
+// Weekly moves that are large relative to each metric's OWN recent volatility (roadmap 6.2).
+export function AnomalyWatch({ model, open }) {
+  const w = completeWeeks(model);
+  const flags = [];
+  for (const m of METRICS) {
+    if (m.key === "aged_14d") continue;
+    const series = w.map((x) => x[m.key]).filter((v) => v != null);
+    if (series.length < 4) continue;
+    const deltas = series.slice(1).map((v, i) => v - series[i]);
+    const sd = sdArr(deltas.slice(0, -1));
+    const last = deltas[deltas.length - 1];
+    if (sd && sd > 0 && Math.abs(last) > 1.75 * sd && Math.abs(last) >= 3)
+      flags.push({ m, last, z: last / sd, imp: isImproving(m.key, last) });
+  }
+  flags.sort((a, b) => Math.abs(b.z) - Math.abs(a.z));
+  return (
+    <div className="panel">
+      <h2>Anomaly watch</h2>
+      <p className="why">Week-over-week moves that are large <em>relative to each metric's own recent swing</em> (&gt;1.75σ) — worth a look, not noise. <span className="hint">Click to drill.</span></p>
+      {flags.length === 0 ? <ul className="insights"><li className="insight ok"><span className="ins-dot" />No weekly metric moved beyond its normal range — nothing anomalous.</li></ul>
+        : <ul className="insights">{flags.map((f, i) => (
+          <li key={i} className={"insight " + (f.imp ? "ok" : "warn") + " clickable"} onClick={() => open({ type: "metric", key: f.m.key, lab: f.m.lab })}><span className="ins-dot" />
+            {f.m.lab} moved {f.last > 0 ? "+" : ""}{f1(f.last)} pts last week — {Math.abs(f.z).toFixed(1)}σ vs its usual swing.
+          </li>))}</ul>}
+    </div>
+  );
+}
+
+// Prescriptive, worst-first next actions (roadmap 6.4).
+export function Recommendations({ model, open }) {
+  const sb = model.scoreboard || {}, kb = model.kb || {}, towers = (model.towers || []).filter((t) => t.known !== false && t.volume);
+  const recs = [];
+  if (kb.pct != null && kb.pct >= 30) {
+    const worst = [...towers].sort((a, b) => (b.escalation_pct ?? 0) - (a.escalation_pct ?? 0))[0];
+    recs.push({ text: `Close the KB gap: ${kb.gap}/${kb.escalated} escalations found no article${worst ? `. Start with ${worst.tower} — highest escalation at ${pct(worst.escalation_pct)}` : ""}.`, drill: { type: "kbgap", gap: kb.gap, escalated: kb.escalated, pct: kb.pct } });
+  }
+  const slaVals = towers.map((t) => t.sla_pct).filter((v) => v != null);
+  if (slaVals.length) {
+    const best = Math.max(...slaVals); const worst = [...towers].sort((a, b) => (a.sla_pct ?? 100) - (b.sla_pct ?? 100))[0];
+    if (worst && best - worst.sla_pct >= 5) recs.push({ text: `Lift SLA in ${worst.tower} (${pct(worst.sla_pct)}) toward the best tower (${pct(best)}) — a ${f1(best - worst.sla_pct)}-pt gap over ${worst.volume} tickets.`, drill: { type: "tower", row: worst } });
+  }
+  const bl = (model.backlog || []).slice(-1)[0];
+  if (bl && bl.aged) recs.push({ text: `Clear the aged tail: ${bl.aged} tickets are >14 days old — the SLA breaches already baked in.` });
+  const e = sb.escalation_pct;
+  if (e && e.verdict === "GAP") recs.push({ text: `Escalation is ${pct(e.value)} vs ≤${e.target}% — every point deflected at L1 is capacity returned. FTR and KB are the levers.`, drill: { type: "metric", key: "escalation_pct", lab: "Escalation rate" } });
+  return (
+    <div className="panel">
+      <h2>Recommended next actions</h2>
+      <p className="why">Prescriptive and worst-first — each derived from the figures the panels show, aimed at the cheapest point of improvement. <span className="hint">Click to drill.</span></p>
+      <ol className="recs">{recs.map((r, i) => (
+        <li key={i} className={r.drill ? "clickable" : ""} onClick={r.drill ? () => open(r.drill) : undefined}><span className="rec-n">{i + 1}</span><span>{r.text}</span></li>
+      ))}</ol>
+    </div>
+  );
+}
+
+// Linear-trend forecast of a KPI over the complete weeks, projected 4 weeks out (roadmap 6.8).
+export function Forecast({ model }) {
+  const w = completeWeeks(model);
+  const [metric, setMetric] = useState("sla_pct");
+  const pts = w.map((x, i) => ({ i, y: x[metric] })).filter((p) => p.y != null);
+  if (pts.length < 3) return null;
+  const n = pts.length, sx = sum(pts.map((p) => p.i)), sy = sum(pts.map((p) => p.y)),
+    sxx = sum(pts.map((p) => p.i * p.i)), sxy = sum(pts.map((p) => p.i * p.y));
+  const denom = n * sxx - sx * sx || 1;
+  const slope = (n * sxy - sx * sy) / denom, intercept = (sy - slope * sx) / n;
+  const lastI = pts[pts.length - 1].i, horizon = 4, proj = intercept + slope * (lastI + horizon);
+  const target = (model.scoreboard?.[metric] || {}).target, dir = BETTER[metric];
+  const onTrack = target == null ? null : (dir === "up" ? proj >= target : proj <= target);
+  let weeksTo = null;
+  if (target != null && slope !== 0 && ((dir === "up" && slope > 0) || (dir === "down" && slope < 0))) {
+    const wk = (target - intercept) / slope - lastI; if (wk > 0 && wk < 260) weeksTo = Math.ceil(wk);
+  }
+  const series = pts.map((p) => ({ y: p.y })).concat([{ y: Math.max(0, Math.min(100, proj)) }]);
+  const opts = [["sla_pct", "SLA"], ["ftr_pct", "FTR"], ["escalation_pct", "Escalation"], ["response_pct", "Response"]];
+  return (
+    <div className="panel">
+      <h2>Forecast — where the trend points</h2>
+      <p className="why">Least-squares trend over the complete weeks, projected {horizon} weeks out. A straight-line read, not a promise — it says where today's slope leads if nothing changes.</p>
+      <div className="seg seg-sm">{opts.map(([k, lab]) => <button key={k} className={k === metric ? "on" : ""} onClick={() => setMetric(k)}>{lab}</button>)}</div>
+      <div className="miniboard" style={{ marginTop: "0.5rem" }}>
+        <div><span className="k">now</span><span className="v tnum">{pct(pts[pts.length - 1].y)}</span></div>
+        <div><span className="k">slope/wk</span><span className="v tnum">{slope > 0 ? "+" : ""}{f1(slope)}</span></div>
+        <div><span className="k">+{horizon}wk</span><span className="v tnum">{pct(proj)}</span></div>
+        <div><span className="k">vs target</span><span className="v tnum" style={{ color: onTrack == null ? "var(--ink)" : onTrack ? "var(--ok)" : "var(--crit)" }}>{target == null ? "—" : onTrack ? "on track" : "off track"}</span></div>
+        <div><span className="k">to target</span><span className="v tnum">{weeksTo == null ? (onTrack ? "met" : "—") : `${weeksTo}wk`}</span></div>
+      </div>
+      <div style={{ marginTop: "0.6rem" }}><Sparkline points={series} h={64} fmt={(v) => pct(v)}
+        color={onTrack == null ? "var(--accent)" : onTrack ? "var(--ok)" : "var(--crit)"} /></div>
+    </div>
+  );
+}
+
+// The pilot exit criteria, computed live (not hardcoded) — roadmap 6.3 surface.
+export function CriteriaScorecard({ model }) {
+  const sb = model.scoreboard || {}, A = model.analysts || {};
+  const outliers = (A.people || []).filter((p) => p.rate != null && (p.rate < A.lo || p.rate > A.hi)).length;
+  const crit = [
+    { lab: "FTR ≥ 65%", ok: (sb.ftr_pct?.value ?? 0) >= 65, v: pct(sb.ftr_pct?.value) },
+    { lab: "Escalation ≤ 35%", ok: (sb.escalation_pct?.value ?? 100) <= 35, v: pct(sb.escalation_pct?.value) },
+    { lab: "Reopen ≤ 5%", ok: (sb.reopen_pct?.value ?? 100) <= 5, v: pct(sb.reopen_pct?.value) },
+    { lab: "Resolution SLA ≥ 95%", ok: (sb.sla_pct?.value ?? 0) >= 95, v: pct(sb.sla_pct?.value) },
+    { lab: "Response SLA ≥ 95%", ok: (sb.response_pct?.value ?? 0) >= 95, v: pct(sb.response_pct?.value) },
+    { lab: "Analysts within 2σ", ok: outliers === 0, v: outliers === 0 ? "all" : `${outliers} out` },
+  ];
+  const met = crit.filter((c) => c.ok).length;
+  return (
+    <div className="panel">
+      <h2>Pilot exit scorecard <span className="why" style={{ display: "inline", margin: 0 }}>— {met}/{crit.length} met, computed live</span></h2>
+      <div className="scorecard">{crit.map((c, i) => (
+        <div key={i} className={"score-cell " + (c.ok ? "ok" : "bad")}>
+          <span className="sc-flag">{c.ok ? "✓" : "✗"}</span><span className="sc-k">{c.lab}</span><span className="sc-v tnum">{c.v}</span>
+        </div>
+      ))}</div>
+    </div>
+  );
+}
+
 // ---- revived OPS themes computed from the record layer --------------------------------
 export function ImpactUrgency({ model, records, open }) {
   const IMP = ["High", "Medium", "Low"], URG = ["High", "Medium", "Low"];

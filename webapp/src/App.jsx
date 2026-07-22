@@ -4,7 +4,8 @@ import { KpiStrip, PairingPanel, Analysts, KBGap, Towers, Intake, Ageing,
   QueueByStatus, EscalationReasons, InsightsFeed, IntegrityStrip, ImpactUrgency,
   MajorIncident, TierFlow, PracticeMix, IncidentManagement, ChangeManagement,
   ProblemManagement, RequestFulfilment, SlaByType, CustomerSatisfaction,
-  SnapshotTrends } from "./panels.jsx";
+  SnapshotTrends, BenchmarkLeague, WhatChanged, AnomalyWatch, Recommendations,
+  Forecast, CriteriaScorecard } from "./panels.jsx";
 import { Drawer } from "./drill.jsx";
 
 const PROJECTS = ["OPS", "ITSM"];
@@ -49,6 +50,12 @@ function lensPanels(lens, project, model, open, records, history) {
   ];
   return [
     <InsightsFeed key="ins" {...P} />,
+    <Recommendations key="rec" {...P} />,
+    <WhatChanged key="chg" history={history} />,
+    <AnomalyWatch key="anom" {...P} />,
+    <BenchmarkLeague key="league" {...P} />,
+    <Forecast key="fc" {...P} />,
+    <CriteriaScorecard key="crit" {...P} />,
     <SnapshotTrends key="trend" history={history} />,
     ...(itsm
       ? [<PracticeMix key="pmx" {...R} />, <IncidentManagement key="im" {...R} />,

@@ -223,6 +223,35 @@ tr.clickable:hover td { background: var(--accent-dim); }
 .int-v { font-size: 1.1rem; font-weight: 650; }
 .int-note { font-size: 0.72rem; color: var(--muted); }
 
+/* Insights & Intelligence layer (Part VI) */
+.seg-sm { display: inline-flex; gap: 2px; }
+.seg-sm button { font-size: 0.68rem; padding: 0.2rem 0.5rem; background: var(--raised); border: 1px solid var(--rule);
+  color: var(--ink-soft); cursor: pointer; border-radius: 3px; }
+.seg-sm button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+table.league { width: 100%; }
+table.league td, table.league th { padding: 0.3rem 0.4rem; }
+.best-tag { font-family: var(--mono); font-size: 0.56rem; text-transform: uppercase; color: var(--ok);
+  border: 1px solid var(--ok); border-radius: 3px; padding: 0 0.25rem; margin-left: 0.4rem; vertical-align: middle; }
+.gap-bar { position: relative; display: flex; align-items: center; gap: 0.4rem; min-width: 90px; }
+.gap-bar > span { display: inline-block; height: 8px; background: var(--warn); border-radius: 2px; min-width: 1px; flex: 0 0 auto; }
+.gap-bar > em { font-family: var(--mono); font-size: 0.68rem; color: var(--ink-soft); font-style: normal; }
+ol.recs { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.45rem; }
+ol.recs li { display: flex; gap: 0.5rem; align-items: flex-start; font-size: 0.82rem; line-height: 1.35;
+  background: var(--raised); padding: 0.5rem 0.6rem; border-radius: 4px; border-left: 3px solid var(--accent); }
+ol.recs li.clickable { cursor: pointer; }
+ol.recs li.clickable:hover { border-left-color: var(--warn); }
+.rec-n { font-family: var(--mono); font-weight: 650; color: var(--accent); flex: 0 0 auto; }
+.scorecard { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.5rem; }
+.score-cell { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.4rem;
+  background: var(--raised); padding: 0.45rem 0.55rem; border-radius: 4px; border-left: 3px solid var(--rule); }
+.score-cell.ok { border-left-color: var(--ok); }
+.score-cell.bad { border-left-color: var(--crit); }
+.score-cell .sc-flag { font-weight: 700; }
+.score-cell.ok .sc-flag { color: var(--ok); }
+.score-cell.bad .sc-flag { color: var(--crit); }
+.score-cell .sc-k { font-size: 0.72rem; color: var(--ink-soft); }
+.score-cell .sc-v { font-size: 0.85rem; font-weight: 650; }
+
 .trend-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.7rem; }
 .trend-card { background: var(--raised); padding: 0.55rem 0.6rem 0.5rem; border-radius: 4px; }
 .trend-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.4rem;
