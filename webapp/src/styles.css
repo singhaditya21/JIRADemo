@@ -73,6 +73,18 @@ main { padding: clamp(1rem, 3vw, 2rem); max-width: min(97vw, 1760px); margin: 0 
 .panel {
   background: var(--raised); border: 1px solid var(--rule); border-radius: 8px;
   padding: 1.1rem 1.2rem; overflow: hidden;
+  container-type: inline-size; container-name: panel;   /* internals query the PANEL's own width */
+}
+/* Panel internals respond to the panel's allotted width, not the viewport — so a span-2 panel
+   and a span-1 panel at the SAME viewport lay their internals out differently (Part VII). */
+@container panel (min-width: 600px) {
+  .panel .scorecard { grid-template-columns: repeat(3, 1fr); }
+  .panel .trend-grid { grid-template-columns: repeat(3, 1fr); }
+  .panel .miniboard { grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); }
+}
+@container panel (max-width: 330px) {
+  .panel .donut-row { flex-direction: column; align-items: flex-start; }
+  .panel .seg-sm { flex-wrap: wrap; }
 }
 .panel h2 { margin: 0 0 0.15rem; font-size: 0.95rem; font-weight: 650; }
 .panel .why { color: var(--muted); font-size: 0.8rem; margin: 0 0 0.9rem; }
@@ -147,6 +159,16 @@ tr.clickable:hover td { background: var(--accent-dim); }
 .drawer { width: min(420px, 92vw); height: 100%; background: var(--paper);
   border-left: 1px solid var(--rule); box-shadow: -12px 0 40px rgba(0,0,0,0.18);
   display: flex; flex-direction: column; animation: slidein 0.16s ease; }
+
+/* Push, don't overlay (Part VII §5): on a wide screen the drawer docks at the right and the
+   board reflows into the narrower space beside it (no dimming scrim), so both stay usable.
+   On narrow screens it falls back to the overlay+scrim above. */
+:root { --drawer-w: min(560px, 44vw); }
+@media (min-width: 1000px) {
+  main.drawer-open { padding-right: calc(var(--drawer-w) + 1.1rem); transition: padding-right 0.18s ease; }
+  .drawer-overlay { left: auto; width: var(--drawer-w); background: transparent; }
+  .drawer, .drawer-wide { width: 100%; max-width: none; }
+}
 @keyframes fade { from { opacity: 0; } }
 @keyframes slidein { from { transform: translateX(24px); opacity: 0.6; } }
 .drawer-head { display: flex; align-items: center; justify-content: space-between;

@@ -251,7 +251,7 @@ export default function App() {
         </div>
       </header>
 
-      <main>
+      <main className={drill ? "drawer-open" : ""}>
         {loading && !model && <div className="state">loading {project} …</div>}
         {/* A user-initiated load (switch/refresh) that fails shows the error rather than
             stale, wrong-labelled data. Quiet auto-poll failures stay silent (last good data
