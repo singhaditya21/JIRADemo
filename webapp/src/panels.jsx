@@ -1105,13 +1105,24 @@ const SFC_STAGES = ["Intake", "Build", "Review", "Deploy", "Audit"];
 const DEPLOY_ORDER = ["Not started", "Validated", "Deploying", "Deployed", "Failed", "Rolled back"];
 const HEALTH_COLOR = { Healthy: "var(--ok)", Degraded: "var(--warn)", Failing: "var(--crit)", Unknown: "var(--muted)" };
 
-// Honesty banner — the SFC data is a preview until the real Jira project is provisioned.
+// Honesty banner. Loud amber while the lens runs on the deterministic preview seed;
+// once the real SFC Jira project is baked (model.preview === false) it drops to a
+// subtle live note that keeps the one remaining caveat visible: per-org deploy state
+// and config health are seeded until a real CI/CD writeback + drift probe run.
 export function DeliveryPreviewBanner({ model }) {
-  if (!model || !model.preview) return null;
+  if (!model) return null;
+  if (model.preview) {
+    return (
+      <div className="panel span-full headline" style={{ borderLeftColor: "var(--accent)" }}>
+        <span className="headline-tag" style={{ color: "var(--accent)", borderColor: "var(--accent)" }}>Preview</span>
+        <span className="headline-text">This is a <strong>deterministic preview</strong> of the Delivery / SF Config lens — the SFC Jira project isn't provisioned yet (see the P0 build). Not live Jira/Salesforce data; deploy state &amp; health flip to real once the CI writeback runs.</span>
+      </div>
+    );
+  }
   return (
-    <div className="panel span-full headline" style={{ borderLeftColor: "var(--accent)" }}>
-      <span className="headline-tag" style={{ color: "var(--accent)", borderColor: "var(--accent)" }}>Preview</span>
-      <span className="headline-text">This is a <strong>deterministic preview</strong> of the Delivery / SF Config lens — the SFC Jira project isn't provisioned yet (see the P0 build). Not live Jira/Salesforce data; deploy state &amp; health flip to real once the CI writeback runs.</span>
+    <div className="panel span-full headline" style={{ borderLeftColor: "var(--ok)" }}>
+      <span className="headline-tag" style={{ color: "var(--ok)", borderColor: "var(--ok)" }}>Live</span>
+      <span className="headline-text"><strong>Live SFC Jira data.</strong> Stage, funnel, squad, CAB and the agent-action ledger are real. Per-org <strong>deploy state &amp; config health</strong> read <strong>Source = Seeded</strong> until a real CI/CD writeback + drift probe run — the health board splits CI-written vs seeded, so it&apos;s never hidden.</span>
     </div>
   );
 }

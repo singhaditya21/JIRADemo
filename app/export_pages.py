@@ -254,6 +254,24 @@ def export(out_dir, day_windows):
             print(f"  ! {project}: export failed - {e}", file=sys.stderr)
             continue
 
+    # SFC (DeliveryIQ) is a separate lens with its own schema (stages/deploys/health,
+    # not the SLA engine), so it bakes through its own module rather than build_model.
+    # If the SFC project is not provisioned yet, this fails softly and the CI step that
+    # writes the preview seed (app.sfc_seed) still covers the lens.
+    try:
+        from app.sfc_export import export_sfc
+        count, sfc_files = export_sfc(j, out_dir, day_windows, generated_at)
+        for days, name in zip(day_windows, sfc_files):
+            index["files"]["SFC-%d" % days] = name
+        index["record_files"]["SFC"] = "SFC-records.json"
+        index["projects"].append("SFC")
+        ok_any = True
+        print("  + SFC live bake (%d requests)" % count)
+    except Exception as e:
+        index["errors"]["SFC"] = "%s: %s" % (type(e).__name__, e)
+        print("  ! SFC: live bake skipped - %s (preview seed still covers the lens)" % e,
+              file=sys.stderr)
+
     # index.json is always written, even if a project failed, so the site still deploys.
     (out_dir / "index.json").write_text(json.dumps(index, indent=1))
     print(f"  + index.json  (generated_at {generated_at}, pseudonymised={pseudo})")
