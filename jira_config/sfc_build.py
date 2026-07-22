@@ -14,10 +14,15 @@ It creates, idempotently and in one pass:
   * the DeliveryIQ custom fields at cf_10061+ (Target Orgs, Config Component Type,
     Change Risk, Deploy State, Config Health, Health Checked At, Deploy Source, CAB
     Approval, the agent-action ledger fields, Package Ref), with options, added to
-    the SFC screens, and their new contexts scoped to SFC;
+    the SFC screens (global field contexts — a field is only visible where it is on
+    a screen, so no per-project scoping is needed and none is faked);
   * the five-stage statuses (Intake → Build → Review → Deploy → Audit) and a
-    best-effort workflow with a CAB gate (a change cannot be sent to CAB until what
-    it changes is recorded — the DeliveryIQ analogue of the OPS escalation gate).
+    workflow with a CAB gate (a change cannot be sent to CAB until what it changes is
+    recorded — the DeliveryIQ analogue of the OPS escalation gate), THEN a workflow
+    scheme that binds that workflow to the SFC project so the statuses are actually
+    reachable. The bind is one synchronous PUT because it runs against the freshly
+    created, still-empty project (no async status migration) — this is why sfc_build
+    must run before fixtures.sfc_seed.
 
 Idempotent — safe to re-run. Existing objects are reused, never duplicated. Writes
 jira_config/state/.sfc_state.json (consumed by the seeder; the app resolves field
@@ -39,6 +44,7 @@ import argparse
 import uuid
 
 from shared.jira_client import Jira, log, require_env
+from shared import fields as SF          # proper duplicate-name field disambiguation
 from jira_config import jira_schema as S
 from jira_config import SFC_STATE as STATE
 from jira_config import merge_state, read_state
@@ -46,7 +52,7 @@ from jira_config.reconcile import Writer
 from jira_config.build import ensure_options  # generic context/option reconciler
 
 OWNED_KEYS = ("project_id", "issue_types", "issue_type_scheme_id", "fields",
-              "statuses", "workflow_created")
+              "statuses", "workflow_created", "workflow_scheme_id")
 
 # ---------------------------------------------------------------------------
 # Project identity
@@ -185,6 +191,9 @@ TRANSITIONS = [
 GATE_TRANSITION = "Request CAB"
 GATE_FIELDS = ["Change Risk", "Config Component Type", "Target Orgs"]
 
+WORKFLOW_NAME = "SFC DeliveryIQ Workflow"
+WORKFLOW_SCHEME_NAME = "SFC DeliveryIQ Workflow Scheme"
+
 NS = uuid.UUID("6f1e5d6c-0a4b-4f2e-9c3d-000000000002")  # distinct from OPS's namespace
 
 
@@ -295,24 +304,46 @@ def ensure_field(w, name, ftype, have):
     return res["id"], True
 
 
-def build_fields(w):
-    """Create/resolve every SFC field. Returns (name->id, [ids created by us])."""
-    have = existing_custom_fields(w.j)
-    fields, created_ids = {}, []
+def resolve_shared(j):
+    """Correct ids for the OPS-shared fields, disambiguated by shared.fields.
 
-    def do(name, ftype, options=None, scoped=True):
+    This instance carries TWO custom fields named "Urgency" (and one "Impact" that is
+    a Jira built-in) — see shared/fields.py. A raw {name: id} map is last-one-wins and
+    can hand the seeder a JSM look-alike whose option set differs, 400-ing every issue
+    create. shared.fields.resolve() applies the same type+description-tag tie-break the
+    app uses at runtime, so the seeder gets the OPS-owned id. Returns {} if OPS's schema
+    is not fully present (then we fall back to creating the fields ourselves).
+    """
+    try:
+        return SF.resolve(j)
+    except SF.FieldResolutionError:
+        return {}
+
+
+def build_fields(w):
+    """Create/resolve every SFC field. Returns name -> customfield id."""
+    have = existing_custom_fields(w.j)
+    shared = resolve_shared(w.j)
+    fields = {}
+
+    def do(name, ftype, options=None):
         fid, is_new = ensure_field(w, name, ftype, have)
         fields[name] = fid
-        marker = "+" if is_new else "="
         extra = ""
         if options:
             n = ensure_options(w, fid, options, is_new)
             extra = "  (+%d options)" % n
-        if is_new and scoped:
-            created_ids.append(fid)
-        log("  %s %-24s %s%s" % (marker, name, fid, extra))
+        log("  %s %-24s %s%s" % ("+" if is_new else "=", name, fid, extra))
 
-    log("  -- SFC-owned fields (scoped to SFC) --")
+    def reuse(name, ftype, options=None):
+        # Prefer the disambiguated id; only create if OPS's schema is absent here.
+        if name in shared:
+            fields[name] = shared[name]
+            log("  = %-24s %s  (shared with OPS, disambiguated)" % (name, shared[name]))
+        else:
+            do(name, ftype, options)
+
+    log("  -- SFC-owned fields (global context; visible only on SFC screens) --")
     for name, opts in SELECT1_FIELDS.items():
         do(name, SELECT1, opts)
     for name, opts in SELECTN_FIELDS.items():
@@ -324,54 +355,37 @@ def build_fields(w):
     for name in DATETIME_FIELDS:
         do(name, DATETIME)
 
-    # Shared with OPS: reuse by name, keep global, never scope (scoped=False).
-    log("  -- shared fields (reused from OPS, left global) --")
+    # Shared with OPS: reuse the disambiguated id, add to SFC screens, never touch its
+    # global context (scoping a shared field to SFC would strand it on OPS).
+    log("  -- shared fields (reused from OPS) --")
     for name, opts in REUSED_SELECT_FIELDS.items():
-        do(name, SELECT1, opts, scoped=False)
+        reuse(name, SELECT1, opts)
     for name in REUSED_TEXT_FIELDS:
-        do(name, TEXT, scoped=False)
+        reuse(name, TEXT)
     for name in REUSED_DATE_FIELDS:
-        do(name, DATETIME, scoped=False)
+        reuse(name, DATETIME)
 
-    return fields, created_ids
-
-
-def scope_fields_to_sfc(w, project_id, field_ids):
-    """Best-effort: restrict each newly-created SFC field's context to SFC.
-
-    A brand-new custom field gets a GLOBAL default context. Adding a project to a
-    global context is rejected by Jira, so true scoping means replacing it with a
-    project-scoped context — finicky and unverifiable without a token. This makes a
-    best-effort POST and reports honestly; a global context is harmless (a field is
-    only visible where it is on a screen), so a failure here never fails the build.
-    """
-    if not field_ids:
-        return
-    scoped = 0
-    for fid in field_ids:
-        ctxs = (w.j.try_get("/rest/api/3/field/%s/context" % fid, {}) or {}).get("values", [])
-        if not ctxs:
-            continue
-        ctx = ctxs[0]["id"]
-        try:
-            w.put("/rest/api/3/field/%s/context/%s/project" % (fid, ctx),
-                  {"projectIds": [str(project_id)]})
-            scoped += 1
-        except RuntimeError as e:
-            log("    ~ %s: context left global (%s)" % (fid, str(e)[:90]))
-    log("  %d/%d new field context(s) scoped to %s (rest left global — harmless)"
-        % (scoped, len(field_ids), PROJECT_KEY))
+    return fields
 
 
 def add_fields_to_screens(w, field_ids):
-    """Put every SFC field on the SFC screens so REST can set it on create/edit."""
+    """Put every SFC field on the SFC screens so REST can set it on create/edit.
+
+    Matched by project KEY in the screen name (as OPS does). If NO SFC-named screen is
+    found we WARN and skip rather than spraying SFC fields across every project's
+    screens (the old all-screens fallback could land them on OPS/ITSM). A freshly
+    created company-managed project always has key-named screens, so this is a
+    belt-and-braces guard, not the expected path.
+    """
     j = w.j
     added = 0
     screens = j.get("/rest/api/3/screens?maxResults=100").get("values", [])
     targets = [s for s in screens if PROJECT_KEY.lower() in (s.get("name") or "").lower()]
     if not targets:
-        log("  ! no SFC-specific screens found; falling back to all editable screens")
-        targets = screens
+        log("  ! no SFC-specific screens found — skipping (refusing to touch other "
+            "projects' screens). Add the SFC fields to the SFC create/edit screens in "
+            "the UI, then re-run the seeder.")
+        return 0
     for sc in targets:
         tabs = j.try_get("/rest/api/3/screens/%s/tabs" % sc["id"], [])
         if not tabs:
@@ -422,9 +436,10 @@ def attempt_workflow(w, status_ids, field_ids):
     """One careful attempt at the SFC workflow with the CAB gate. True on success.
 
     Same shape as jira_config.workflow.attempt_workflow; the Cloud workflow API is
-    strict, so this reports honestly rather than pretending. If it fails the seeder
-    falls back to whatever statuses exist and the workflow is assembled in the UI
-    from the transition table printed by print_transition_table().
+    strict, so this reports honestly rather than pretending. On success, main() binds
+    it to the project via ensure_workflow_scheme so the statuses become reachable. If
+    creation fails, the workflow is assembled in the UI from print_transition_table().
+    Returns True (created), False (declined), or None (dry-run rehearsal).
     """
     layout_statuses = [
         {"statusReference": sref(n), "layout": {"x": (i % 4) * 220.0,
@@ -457,7 +472,7 @@ def attempt_workflow(w, status_ids, field_ids):
              "description": "SFC / DeliveryIQ - %s" % n}
             for n, cat in STATUSES],
         "workflows": [{
-            "name": "SFC DeliveryIQ Workflow",
+            "name": WORKFLOW_NAME,
             "description": "Intake -> Build -> Review -> Deploy -> Audit, with a CAB gate.",
             "statuses": layout_statuses,
             "transitions": transitions,
@@ -481,8 +496,73 @@ def print_transition_table():
     for name, ttype, frm, to in TRANSITIONS:
         log("  %-20s %-9s %-16s -> %s" % (name, ttype, frm or "(any)", to))
     log("  gate: %r requires %s" % (GATE_TRANSITION, ", ".join(GATE_FIELDS)))
-    log("  Then bind 'SFC DeliveryIQ Workflow' to the SFC project's issue types via a")
-    log("  workflow scheme (Project settings -> Workflows) so the statuses are reachable.")
+    log("  Then bind %r to the SFC project's issue types via a workflow scheme" % WORKFLOW_NAME)
+    log("  (Project settings -> Workflows) so the statuses are reachable.")
+
+
+def current_scheme_id(j, project_id):
+    """The id of the workflow scheme currently bound to `project_id`, or None.
+
+    The built-in Default Workflow Scheme has no id, so a project on it returns None
+    (which is exactly the 'not yet ours' signal we want).
+    """
+    resp = j.try_get("/rest/api/3/workflowscheme/project?projectId=%s" % project_id, {}) or {}
+    for v in resp.get("values", []):
+        ws = v.get("workflowScheme") or {}
+        if ws.get("id") is not None:
+            return str(ws["id"])
+    ws = resp.get("workflowScheme") or {}
+    return str(ws["id"]) if ws.get("id") is not None else None
+
+
+def ensure_workflow_scheme(w, project_id):
+    """Create the SFC workflow scheme and bind it to the (empty) SFC project.
+
+    This is what makes the five stages REACHABLE: a workflow from /workflows/create is
+    inert until a scheme maps it onto the project's issue types and the scheme is
+    assigned to the project. The classic scheme references the workflow by NAME.
+
+    The assignment is a single synchronous PUT because it runs against the freshly
+    created, still-empty project — Jira only triggers the async status-migration when
+    issues already exist. So sfc_build MUST run before fixtures.sfc_seed. On an
+    idempotent re-run (scheme already bound), the PUT is skipped. If the project
+    already holds issues under a different scheme, the PUT is refused and we fall back
+    to the printed UI instructions rather than pretend. Returns (scheme_id, bound?).
+    """
+    j = w.j
+    schemes = j.get("/rest/api/3/workflowscheme?maxResults=100").get("values", [])
+    hit = [s for s in schemes if s.get("name") == WORKFLOW_SCHEME_NAME]
+    if hit:
+        sid = str(hit[0]["id"])
+        log("  = workflow scheme exists (%s)" % sid)
+    else:
+        res = w.post("/rest/api/3/workflowscheme", {
+            "name": WORKFLOW_SCHEME_NAME,
+            "description": "Maps SFC issue types onto the DeliveryIQ funnel workflow.",
+            # Classic scheme binds by workflow NAME; the default covers every SFC type
+            # (incl. the Org Deploy sub-task, which simply rests in the initial status —
+            # the seeder never transitions sub-tasks).
+            "defaultWorkflow": WORKFLOW_NAME,
+        })
+        sid = str(res.get("id") or res.get("workflowSchemeId") or "DRY")
+        log("  + workflow scheme created (%s), default workflow %r" % (sid, WORKFLOW_NAME))
+
+    if not w.dry and current_scheme_id(j, project_id) == sid:
+        log("  = %s already bound to %s (statuses reachable)" % (WORKFLOW_SCHEME_NAME, PROJECT_KEY))
+        return sid, True
+    try:
+        # Empty project -> 204 synchronous, no migration. This is the whole point of
+        # binding before seeding.
+        w.put("/rest/api/3/workflowscheme/project",
+              {"workflowSchemeId": sid, "projectId": str(project_id)})
+        log("  workflow scheme bound to %s — Intake/Build/Review/Deploy/Audit now reachable"
+            % PROJECT_KEY)
+        return sid, True
+    except RuntimeError as e:
+        log("  ! workflow-scheme bind FAILED: %s" % str(e)[:220])
+        log("    If the project already has issues, assignment needs the async migration —")
+        log("    switch it to %r in the UI (Project settings -> Workflows)." % WORKFLOW_SCHEME_NAME)
+        return sid, False
 
 
 # ---------------------------------------------------------------------------
@@ -513,12 +593,9 @@ def main(argv=None):
     state["issue_type_scheme_id"] = ensure_scheme(w, state["issue_types"], project_id)
 
     log("== custom fields ==")
-    fields, new_ids = build_fields(w)
+    fields = build_fields(w)
     state["fields"] = fields
-    log("  %d fields total, %d newly created" % (len(fields), len(new_ids)))
-
-    log("== scope new field contexts ==")
-    scope_fields_to_sfc(w, project_id, new_ids)
+    log("  %d fields total" % len(fields))
 
     log("== screens ==")
     n = add_fields_to_screens(w, list(fields.values()))
@@ -530,8 +607,22 @@ def main(argv=None):
 
     log("== workflow ==")
     ok = attempt_workflow(w, status_ids, fields)
-    state["workflow_created"] = bool(ok)
-    if not ok:
+    # A dry run learns nothing about whether creation would succeed, so it must not
+    # overwrite the recorded answer with a guess (matches jira_config.workflow).
+    if ok is not None:
+        state["workflow_created"] = ok
+
+    # Bind the workflow to the project so the statuses are reachable. Rehearse it on a
+    # dry run (ok is None); attempt it for real when the workflow was created (ok True).
+    # Only skip when creation genuinely declined (ok False) — nothing to bind then.
+    if ok is not False:
+        log("== workflow scheme (bind) ==")
+        sid, bound = ensure_workflow_scheme(w, project_id)
+        if sid and sid != "DRY":
+            state["workflow_scheme_id"] = sid
+        if not bound and not args.dry_run:
+            print_transition_table()
+    else:
         print_transition_table()
 
     merge_state(STATE, state, OWNED_KEYS, dry=args.dry_run)

@@ -12,13 +12,16 @@ name: Provision the SFC (DeliveryIQ) project
 # reuses existing objects and never duplicates them.
 #
 # Suggested sequence:
-#   1. mode=build, dry_run=true   → read the plan (project, issue types, fields, statuses, workflow)
-#   2. mode=build, dry_run=false  → provision. If the workflow API declines, finish the printed
-#                                    workflow-scheme step in the UI (Project settings → Workflows).
+#   1. mode=build, dry_run=true   → read the plan (project, issue types, fields, statuses, workflow,
+#                                    and the workflow-scheme BIND that makes the statuses reachable)
+#   2. mode=build, dry_run=false  → provision. The workflow is created AND bound to the (empty) SFC
+#                                    project automatically — one synchronous PUT, no migration. Only
+#                                    if the /workflows/create call itself declines does it fall back
+#                                    to a printed transition table for UI assembly.
 #   3. mode=seed,  dry_run=true   → read the seed plan (N requests + Org Deploy sub-tasks)
-#   4. mode=seed,  dry_run=false  → create the real issues.
+#   4. mode=seed,  dry_run=false  → create the real issues, which now reach the real 5-stage statuses.
 # (mode=all runs build then seed in one go; on a dry run it seeds only if a prior real build left
-#  state on disk.)
+#  state on disk. Because binding happens before seeding, the empty-project fast path is guaranteed.)
 #
 # FOLLOW-UP (not this Action): point app/export_pages.py at the real SFC project and drop the
 # `python3 -m app.sfc_seed` preview step from pages.yml. Until then the deployed lens keeps

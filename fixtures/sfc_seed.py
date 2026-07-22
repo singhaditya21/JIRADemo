@@ -170,8 +170,17 @@ def create_request(j, rec, F, settable_req, settable_sub, allowed_priorities):
     issue = j.post("/rest/api/3/issue",
                    {"fields": request_fields(rec, F, settable_req, allowed_priorities)})
     key = issue["key"]
-    reached = walk(j, key, PATHS.get(rec["status"], []))
-    at_target = (reached == len(PATHS.get(rec["status"], [])))
+    walk(j, key, PATHS.get(rec["status"], []))
+    # Confirm the issue actually LANDED in the intended status. reached==len(path) is
+    # not enough: an Intake-target record has an EMPTY path and would look "at target"
+    # even if the workflow is unbound and the issue is really sitting in the template's
+    # default "To Do". Re-read the real status so the unbound-workflow diagnostic is
+    # honest.
+    try:
+        final = j.get("/rest/api/3/issue/%s?fields=status" % key)["fields"]["status"]["name"]
+    except (RuntimeError, KeyError, TypeError):
+        final = None
+    at_target = (final == rec["status"])
     subs = 0
     for dep in rec["org_deploys"]:
         try:
@@ -184,18 +193,57 @@ def create_request(j, rec, F, settable_req, settable_sub, allowed_priorities):
 
 
 def createmeta(j):
-    """(settable-by-type, allowed-priority-names). Empty if createmeta is blank."""
-    meta = j.get("/rest/api/3/issue/createmeta?projectKeys=%s"
-                 "&expand=projects.issuetypes.fields" % PROJECT_KEY)
+    """(settable-by-type, allowed-priority-names).
+
+    Prefers the paginated GET /createmeta/{key}/issuetypes[/{id}] endpoints (the
+    classic ?expand=projects.issuetypes.fields form is deprecated and being removed
+    from Jira Cloud). Falls back to the classic form, then returns (None, ...) if
+    BOTH are unavailable so the caller can abort with a clear message rather than
+    mass-create field-less shells.
+    """
     per_type, priorities = {}, set()
-    for p in meta.get("projects", []):
-        for it in p.get("issuetypes", []):
-            flds = it.get("fields", {})
-            per_type[it["name"]] = set(flds.keys())
-            for av in (flds.get("priority") or {}).get("allowedValues", []):
-                if av.get("name"):
-                    priorities.add(av["name"])
-    return per_type, priorities
+
+    def note_priority(field_entry):
+        for av in (field_entry or {}).get("allowedValues", []):
+            if av.get("name"):
+                priorities.add(av["name"])
+
+    # 1. Newer paginated endpoint.
+    its = j.try_get("/rest/api/3/issue/createmeta/%s/issuetypes" % PROJECT_KEY, None)
+    if its and its.get("issueTypes"):
+        for it in its["issueTypes"]:
+            name, tid, fids = it.get("name"), it.get("id"), set()
+            start = 0
+            while True:
+                page = j.try_get(
+                    "/rest/api/3/issue/createmeta/%s/issuetypes/%s?maxResults=100&startAt=%d"
+                    % (PROJECT_KEY, tid, start), {}) or {}
+                flds = page.get("fields", [])
+                for f in flds:
+                    fid = f.get("fieldId") or f.get("key")
+                    if fid:
+                        fids.add(fid)
+                    if fid == "priority":
+                        note_priority(f)
+                if page.get("isLast", True) or not flds:
+                    break
+                start += len(flds)
+            per_type[name] = fids
+        return per_type, priorities
+
+    # 2. Classic (deprecated) fallback.
+    meta = j.try_get("/rest/api/3/issue/createmeta?projectKeys=%s"
+                     "&expand=projects.issuetypes.fields" % PROJECT_KEY, None)
+    if meta and meta.get("projects"):
+        for p in meta["projects"]:
+            for it in p.get("issuetypes", []):
+                flds = it.get("fields", {})
+                per_type[it["name"]] = set(flds.keys())
+                note_priority(flds.get("priority"))
+        return per_type, priorities
+
+    # 3. Neither available.
+    return None, priorities
 
 
 def main(argv=None):
@@ -219,14 +267,30 @@ def main(argv=None):
     _, records = build(args.n, args.days, now)   # same generator the preview lens uses
 
     per_type, allowed_priorities = createmeta(j)
+    if per_type is None:
+        sys.exit("createmeta is unavailable (both the paginated and classic endpoints "
+                 "failed) — cannot tell which fields the create screen accepts. Aborting "
+                 "rather than mass-create field-less issues. Check the SFC project exists "
+                 "and your token can read it.")
     settable_req = per_type.get(REQUEST_TYPE, set())
     settable_sub = per_type.get(SUBTASK_TYPE, set())
-    usable = [n for r, n, _ in REQUEST_MAP if F.get(n) in settable_req]
-    log("  %d request fields settable on create; %d org-deploy fields on the sub-task"
-        % (len(usable), len([1 for r, n, _ in SUBTASK_MAP if F.get(n) in settable_sub])))
     if not settable_req:
-        log("  ! createmeta returned no settable fields for %r — is the SFC project "
-            "built and are you its lead? Continuing; issues may 400." % REQUEST_TYPE)
+        sys.exit("No SFC request field is settable on the %r create screen — the fields "
+                 "are not on the screen yet. Run `python3 -m jira_config.sfc_build` "
+                 "(screens step) first, then re-run this seeder." % REQUEST_TYPE)
+    usable = [n for r, n, _ in REQUEST_MAP if F.get(n) in settable_req]
+    log("  %d/%d request fields settable on create; %d/%d org-deploy fields on the sub-task"
+        % (len(usable), len(REQUEST_MAP),
+           len([1 for r, n, _ in SUBTASK_MAP if F.get(n) in settable_sub]), len(SUBTASK_MAP)))
+    # The Org Deploy sub-task fields ARE the point of Model A. If they are not on the
+    # sub-task create screen, every sub-task would be an empty shell and the per-org
+    # deploy/health panels would render blank — warn loudly rather than seed silently.
+    sub_missing = [n for r, n, _ in SUBTASK_MAP if F.get(n) not in settable_sub]
+    if sub_missing:
+        log("  ! Org Deploy sub-task is MISSING these fields on its create screen: %s"
+            % ", ".join(sub_missing))
+        log("    Sub-tasks would carry no per-org deploy/health. Add them to the sub-task")
+        log("    screen (sfc_build screens step / UI) before a real seed if you want that data.")
 
     total_subs = sum(len(r["org_deploys"]) for r in records)
     log("\n== plan ==")
@@ -236,7 +300,10 @@ def main(argv=None):
         dist[r["status"]] = dist.get(r["status"], 0) + 1
     log("  status: " + "  ".join("%s:%d" % kv for kv in sorted(dist.items(), key=lambda x: -x[1])))
     if not allowed_priorities:
-        log("  (native priority not offered by createmeta — requests seed without a priority)")
+        log("  ! native priority not offered on the SFC create screen — requests will seed")
+        log("    WITHOUT a priority, blanking priority-based views. If you want priorities,")
+        log("    associate the P1–P4 priority scheme with SFC (Project settings -> Details),")
+        log("    then re-run. (The default scheme usually already exposes them.)")
 
     if args.dry_run:
         log("\ndry run — nothing written")
