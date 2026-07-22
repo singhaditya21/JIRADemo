@@ -1149,6 +1149,64 @@ export function AnalystLoad({ model, records, open }) {
   );
 }
 
+// ==== Part VI — surfaces ==============================================================
+// Headline banner: the single most material insight, atop the Overview lens (roadmap 6.1).
+export function HeadlineBanner({ model, open }) {
+  const ins = buildInsights(model);
+  const worst = ins.find((i) => i.sev === "warn") || ins[0];
+  if (!worst) return null;
+  return (
+    <div className={"panel span-full headline" + (worst.drill ? " clickable" : "")}
+      onClick={worst.drill ? () => open(worst.drill) : undefined} role={worst.drill ? "button" : undefined} tabIndex={worst.drill ? 0 : undefined}>
+      <span className="headline-tag">Headline</span>
+      <span className="headline-text">{worst.text}</span>
+      {worst.drill && <span className="headline-cta">drill →</span>}
+    </div>
+  );
+}
+
+// Baseline → current → target progress with a trend-to-target read (roadmap 6.3).
+export function PilotProgress({ model, baseline, history }) {
+  const sb = model.scoreboard || {}, base = baseline || {};
+  const KEYS = [["ftr_pct", "First-time resolution"], ["sla_pct", "Resolution SLA"], ["response_pct", "Response SLA"], ["escalation_pct", "Escalation rate"], ["reopen_pct", "Reopen rate"]];
+  const rows = KEYS.map(([k, lab]) => {
+    const m = sb[k] || {}, cur = m.value, tgt = m.target, b = base[k];
+    const series = (history || []).map((p) => p[k]).filter((v) => v != null);
+    const slope = series.length >= 2 ? (series[series.length - 1] - series[0]) / (series.length - 1) : 0;
+    const dir = BETTER[k];
+    let weeks = null;
+    if (tgt != null && cur != null && slope !== 0 && ((dir === "up" && slope > 0 && cur < tgt) || (dir === "down" && slope < 0 && cur > tgt))) weeks = Math.ceil((tgt - cur) / slope);
+    const onTarget = tgt == null || cur == null ? null : (dir === "up" ? cur >= tgt : cur <= tgt);
+    return { k, lab, cur, tgt, b, dir, weeks, onTarget };
+  });
+  const gauge = (r) => {
+    const W = 260, x = (v) => Math.max(0, Math.min(100, v)) / 100 * W;
+    return (
+      <svg viewBox={`0 0 ${W} 16`} width="100%" style={{ maxWidth: W, display: "block" }}>
+        <rect x={0} y={5} width={W} height={6} rx="3" fill="var(--rule)" opacity="0.5" />
+        {r.cur != null && <rect x={0} y={5} width={x(r.cur)} height={6} rx="3" fill={r.onTarget ? "var(--ok)" : "var(--warn)"} />}
+        {r.b != null && <line x1={x(r.b)} x2={x(r.b)} y1={2} y2={14} stroke="var(--muted)" strokeWidth="1.5"><title>baseline {f1(r.b)}%</title></line>}
+        {r.tgt != null && <line x1={x(r.tgt)} x2={x(r.tgt)} y1={1} y2={15} stroke="var(--accent)" strokeDasharray="2 2" strokeWidth="1.5"><title>target {r.tgt}%</title></line>}
+      </svg>
+    );
+  };
+  return (
+    <div className="panel span-2">
+      <h2>Pilot progress <span className="why" style={{ display: "inline", margin: 0 }}>— baseline (grey) → current (fill) → target (dashed), from the frozen pilot baseline.</span></h2>
+      <div className="pilot-grid">
+        {rows.map((r) => (
+          <div key={r.k} className="pilot-row">
+            <span className="pilot-lab">{r.lab}</span>
+            {gauge(r)}
+            <span className="pilot-meta tnum">{r.cur == null ? "—" : f1(r.cur) + "%"}{r.b != null ? ` (was ${f1(r.b)})` : ""} · {r.onTarget ? <span style={{ color: "var(--ok)" }}>met</span> : r.weeks != null ? `~${r.weeks}wk to target` : <span style={{ color: "var(--warn)" }}>flat/off</span>}</span>
+          </div>
+        ))}
+      </div>
+      {!baseline && <p className="hint">Baseline freezes on the first bake — the reference tick appears once it exists.</p>}
+    </div>
+  );
+}
+
 // ==== Part V — ITSM catalog completion ================================================
 // 1.7 — incident volume by tower.
 export function IncidentVolByTower({ model, records, open }) {

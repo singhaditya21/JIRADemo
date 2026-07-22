@@ -520,7 +520,10 @@ export function Drawer({ drill, model, records, onClose }) {
       <aside className={"drawer" + (spec ? " drawer-wide" : "")} onClick={(e) => e.stopPropagation()}
         role="dialog" aria-modal="true" aria-label={title}>
         <header className="drawer-head">
-          <h3>{sel ? sel.key : title}</h3>
+          <div className="crumbs">
+            <button className={"crumb" + (sel ? " link" : " here")} onClick={sel ? () => setSel(null) : undefined}>{title}</button>
+            {sel && <><span className="crumb-sep">›</span><span className="crumb here">{sel.key}</span></>}
+          </div>
           <button className="drawer-x" onClick={onClose} aria-label="Close">✕</button>
         </header>
         <div className="drawer-body">
@@ -535,8 +538,11 @@ export function Drawer({ drill, model, records, onClose }) {
               </>}
         </div>
         {!sel && clause && (
+          <div className="jql-preview"><span className="jql-lab">JQL</span><code>{clause}</code></div>
+        )}
+        {!sel && clause && (
           <a className="drawer-jira" href={jira(model.site, clause)} target="_blank" rel="noreferrer">
-            Open matching issues in Jira ↗
+            Open all matching issues in Jira ↗
           </a>
         )}
       </aside>

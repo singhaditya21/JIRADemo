@@ -66,7 +66,8 @@ header.mast {
 main { padding: clamp(1rem, 3vw, 2rem); max-width: min(97vw, 1760px); margin: 0 auto; }
 /* Fill the width: auto-FIT collapses empty tracks so panels stretch edge-to-edge with no
    trailing gaps (3–4 up on a wide screen, 1 up on mobile). */
-.grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); align-items: start; }
+.grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  align-items: start; grid-auto-flow: row dense; }   /* dense: backfill gaps left by span-2/full panels */
 .span-2 { grid-column: span 2; }
 .span-full { grid-column: 1 / -1; }
 @media (max-width: 820px) { .span-2, .span-full { grid-column: 1 / -1; } }
@@ -174,6 +175,17 @@ tr.clickable:hover td { background: var(--accent-dim); }
 .drawer-head { display: flex; align-items: center; justify-content: space-between;
   padding: 1rem 1.1rem; border-bottom: 1px solid var(--rule); }
 .drawer-head h3 { margin: 0; font-size: 0.98rem; }
+.crumbs { display: flex; align-items: center; gap: 0.35rem; font-size: 0.9rem; min-width: 0; }
+.crumb { background: none; border: none; font: inherit; padding: 0; color: var(--ink); cursor: default;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60ch; }
+.crumb.link { color: var(--accent); cursor: pointer; }
+.crumb.link:hover { text-decoration: underline; }
+.crumb.here { font-weight: 600; }
+.crumb-sep { color: var(--muted); }
+.jql-preview { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1.1rem; border-top: 1px solid var(--rule);
+  background: var(--raised); overflow-x: auto; }
+.jql-preview .jql-lab { font-family: var(--mono); font-size: 0.6rem; text-transform: uppercase; color: var(--muted); flex: 0 0 auto; }
+.jql-preview code { font-family: var(--mono); font-size: 0.72rem; color: var(--ink-soft); white-space: nowrap; }
 .drawer-x { background: none; border: 1px solid var(--rule); color: var(--muted);
   width: 28px; height: 28px; border-radius: 6px; cursor: pointer; font-size: 0.9rem; }
 .drawer-x:hover { color: var(--ink); border-color: var(--accent); }
@@ -244,6 +256,20 @@ tr.clickable:hover td { background: var(--accent-dim); }
 .int-k { font-family: var(--mono); font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
 .int-v { font-size: 1.1rem; font-weight: 650; }
 .int-note { font-size: 0.72rem; color: var(--muted); }
+
+/* Part VI surfaces — headline banner + pilot progress */
+.headline { display: flex; align-items: center; gap: 0.8rem; border-left: 4px solid var(--warn);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--warn) 10%, var(--raised)), var(--raised)); }
+.headline.clickable { cursor: pointer; }
+.headline-tag { font-family: var(--mono); font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--warn); border: 1px solid var(--warn); border-radius: 3px; padding: 0.1rem 0.4rem; flex: 0 0 auto; }
+.headline-text { font-size: 0.92rem; font-weight: 550; flex: 1; }
+.headline-cta { font-family: var(--mono); font-size: 0.72rem; color: var(--accent); flex: 0 0 auto; }
+.pilot-grid { display: grid; gap: 0.5rem; }
+.pilot-row { display: grid; grid-template-columns: 150px minmax(120px, 1fr) auto; align-items: center; gap: 0.7rem; }
+.pilot-lab { font-size: 0.78rem; color: var(--ink-soft); }
+.pilot-meta { font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
+@container panel (max-width: 480px) { .panel .pilot-row { grid-template-columns: 1fr; gap: 0.15rem; } }
 
 /* Ask the tower (NLQ, Part VI 6.7) */
 .ask-row { display: flex; gap: 0.5rem; margin-bottom: 0.4rem; }

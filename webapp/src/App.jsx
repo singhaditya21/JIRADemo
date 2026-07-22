@@ -11,7 +11,8 @@ import { KpiStrip, PairingPanel, Analysts, KBGap, Towers, Intake, Ageing,
   OpenByPriority, FlowBalance, GateBypass, InvariantFooter,
   IncidentVolByTower, IncidentEscByTower, MTTAByPriority, OLAHandoff, SlaOutcomeMix,
   SlaTypePriority, RequestAging, ApprovalAging, RCACycle, CSATvsSLA, CSATByTower,
-  QueueDepth, ChangeSuccess, ProblemBacklog, DQBoard } from "./panels.jsx";
+  QueueDepth, ChangeSuccess, ProblemBacklog, DQBoard,
+  HeadlineBanner, PilotProgress } from "./panels.jsx";
 import { Drawer } from "./drill.jsx";
 
 const PROJECTS = ["OPS", "ITSM"];
@@ -25,7 +26,7 @@ const LENSES = [
 // Which panels each lens shows, in order — now project-aware: the ITSM project gets ITIL
 // panels (incident/change/problem/request/SLA-by-type), OPS gets its L1/L2-native ones
 // (tier-flow, Impact×Urgency, major incident). `records` powers the record-derived panels.
-function lensPanels(lens, project, model, open, records, history) {
+function lensPanels(lens, project, model, open, records, history, baseline) {
   const P = { model, open };
   const R = { model, open, records };
   const itsm = project === "ITSM";
@@ -58,8 +59,10 @@ function lensPanels(lens, project, model, open, records, history) {
     <BacklogFlow key="bf" {...P} />,
   ];
   return [
+    <HeadlineBanner key="hl" {...P} />,
     <AskTower key="ask" {...R} />,
     <InsightsFeed key="ins" {...P} />,
+    <PilotProgress key="pp" model={model} baseline={baseline} history={history} />,
     <Recommendations key="rec" {...P} />,
     <WhatChanged key="chg" history={history} />,
     <AnomalyWatch key="anom" {...P} />,
@@ -178,6 +181,7 @@ export default function App() {
   const [drill, setDrill] = useState(null);   // the clicked-into detail, or null
   const [records, setRecords] = useState({}); // {project: [...]}, lazy-loaded for drills
   const [history, setHistory] = useState({}); // {project: [points]}, the daily snapshot trend
+  const [baseline, setBaseline] = useState({}); // {project: {ftr_pct,...}}, frozen pilot baseline
   const [lens, setLens] = useState(boot.lens || localStorage.getItem("ct-lens") || "overview");
   useEffect(() => { localStorage.setItem("ct-lens", lens); }, [lens]);
   // keep the URL in sync so the current view is a shareable link
@@ -206,6 +210,15 @@ export default function App() {
       .then((j) => setHistory((prev) => ({ ...prev, [project]: (j && j.points) || [] })))
       .catch(() => {});
   }, [model, project, history]);
+
+  // Lazy-load the frozen pilot baseline (for baseline → current → target framing).
+  useEffect(() => {
+    if (!model || baseline[project] || DATA_MODE !== "static") return;
+    fetch(`${BASE}data/${project}-baseline.json?_=${Date.now()}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => setBaseline((prev) => ({ ...prev, [project]: (j && j.baseline) || null })))
+      .catch(() => {});
+  }, [model, project, baseline]);
 
   const load = useCallback((quiet = false) => {
     const id = ++reqId.current;
@@ -280,7 +293,7 @@ export default function App() {
             </div>
             <KpiStrip model={model} lens={lens} open={setDrill} />
             <div className="grid">
-              {lensPanels(lens, project, model, setDrill, records[project] || null, history[project] || null)}
+              {lensPanels(lens, project, model, setDrill, records[project] || null, history[project] || null, baseline[project] || null)}
             </div>
             <p className="note">
               Every figure is computed by <span className="mono">app/analytics.py</span> — the same code the static
