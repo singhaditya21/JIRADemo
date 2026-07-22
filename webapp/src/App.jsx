@@ -8,7 +8,10 @@ import { KpiStrip, PairingPanel, Analysts, KBGap, Towers, Intake, Ageing,
   Forecast, CriteriaScorecard, EscalationReasonMatrix, IntakeByTower, AnalystLoad,
   AskTower, TierSankey, DemandCurve, TriageDwell, EscalationLatency, TimeInTier,
   ReasonRootCause, SlaByPriority, KBDiscipline, ResolutionCodeMix, RootCausePareto,
-  OpenByPriority, FlowBalance, GateBypass, InvariantFooter } from "./panels.jsx";
+  OpenByPriority, FlowBalance, GateBypass, InvariantFooter,
+  IncidentVolByTower, IncidentEscByTower, MTTAByPriority, OLAHandoff, SlaOutcomeMix,
+  SlaTypePriority, RequestAging, ApprovalAging, RCACycle, CSATvsSLA, CSATByTower,
+  QueueDepth, ChangeSuccess, ProblemBacklog, DQBoard } from "./panels.jsx";
 import { Drawer } from "./drill.jsx";
 
 const PROJECTS = ["OPS", "ITSM"];
@@ -66,9 +69,13 @@ function lensPanels(lens, project, model, open, records, history) {
     <SnapshotTrends key="trend" history={history} />,
     ...(itsm
       ? [<PracticeMix key="pmx" {...R} />, <IncidentManagement key="im" {...R} />,
-         <ChangeManagement key="cm" {...R} />, <ProblemManagement key="pm" {...R} />,
-         <RequestFulfilment key="rf" {...R} />, <CustomerSatisfaction key="csat" {...R} />,
-         <SlaByType key="sbt" {...R} />]
+         <IncidentVolByTower key="ivt" {...R} />, <IncidentEscByTower key="iet" {...R} />, <MTTAByPriority key="mtp" {...R} />,
+         <ChangeManagement key="cm" {...R} />, <ChangeSuccess key="cs" {...R} />,
+         <ProblemManagement key="pm" {...R} />, <ProblemBacklog key="pb" {...R} />, <RCACycle key="rca" {...R} />,
+         <RequestFulfilment key="rf" {...R} />, <RequestAging key="ra" {...R} />, <ApprovalAging key="aa" {...R} />,
+         <CustomerSatisfaction key="csat" {...R} />, <CSATvsSLA key="cvs" {...R} />, <CSATByTower key="cbt" {...R} />,
+         <SlaByType key="sbt" {...R} />, <SlaTypePriority key="stp" {...R} />, <SlaOutcomeMix key="som" {...R} />,
+         <OLAHandoff key="ola" {...R} />, <QueueDepth key="qd" {...R} />, <DQBoard key="dq" {...R} />]
       : [<TierFlow key="tf" {...R} />, <TierSankey key="tsk" {...R} />, <TimeInTier key="tit" {...R} />,
          <EscalationLatency key="elat" {...R} />, <ImpactUrgency key="iu" {...R} />, <MajorIncident key="mi" {...R} />,
          <EscalationReasonMatrix key="erm" {...R} />, <ReasonRootCause key="rrc" {...R} />, <GateBypass key="gb" {...R} />,

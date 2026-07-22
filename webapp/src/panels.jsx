@@ -1149,6 +1149,239 @@ export function AnalystLoad({ model, records, open }) {
   );
 }
 
+// ==== Part V — ITSM catalog completion ================================================
+// 1.7 — incident volume by tower.
+export function IncidentVolByTower({ model, records, open }) {
+  const inc = inWindow(records, model).filter((r) => r.issue_type === "Incident");
+  const c = {}; for (const r of inc) if (r.tower) c[r.tower] = (c[r.tower] || 0) + 1;
+  const bars = Object.entries(c).sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value }));
+  return (
+    <div className="panel">
+      <h2>Incident volume by tower</h2>
+      <p className="why">Where incidents land, by tower — the demand map. <span className="hint">Click a tower.</span></p>
+      {records && <Bars rows={bars} barH={16} onPick={(b) => open({ type: "records", label: `Incidents · ${b.label}`, pred: (r) => r.issue_type === "Incident" && r.tower === b.label, reconcile: b.value })} />}
+    </div>
+  );
+}
+
+// 1.8 — incident escalation rate per tower vs the 35% line.
+export function IncidentEscByTower({ model, records, open }) {
+  const inc = inWindow(records, model).filter((r) => r.issue_type === "Incident");
+  const towers = [...new Set(inc.map((r) => r.tower).filter(Boolean))];
+  const data = towers.map((t) => { const rs = inc.filter((r) => r.tower === t); const e = rs.filter((r) => r.is_escalated).length; return { t, n: rs.length, rate: rs.length ? e / rs.length * 100 : 0 }; });
+  return (
+    <div className="panel">
+      <h2>Incident escalation by tower</h2>
+      <p className="why">Share of each tower's incidents that reached L2, against the ≤35% target. <span className="hint">Click a row.</span></p>
+      {records && <DotPlot target={35} rows={data.map((d) => ({ label: shortTower(d.t), value: d.rate, n: d.n, onPick: () => open({ type: "records", label: `Escalated incidents · ${d.t}`, pred: (r) => r.issue_type === "Incident" && r.tower === d.t && r.is_escalated, reconcile: null }) }))} />}
+    </div>
+  );
+}
+
+// 1.1 — MTTA by priority (real response_hours), 1.2 already in IncidentManagement.
+export function MTTAByPriority({ model, records }) {
+  const inc = inWindow(records, model).filter((r) => r.issue_type === "Incident");
+  const rows = PRIORITIES.map((p) => { const v = inc.filter((r) => r.priority === p && r.response_hours != null).map((r) => r.response_hours); return { p, n: v.length, mtta: v.length ? meanBy(v, (x) => x) : null }; }).filter((d) => d.mtta != null);
+  return (
+    <div className="panel">
+      <h2>MTTA by priority</h2>
+      <p className="why">Mean time to first response, by severity — higher priority should get faster acknowledgement.</p>
+      <div className="miniboard">{rows.map((d) => <div key={d.p}><span className="k">{PRI_SHORT[d.p]}</span><span className="v tnum">{dur(d.mtta)}</span></div>)}</div>
+    </div>
+  );
+}
+
+// 5.4 — OLA: L1→L2 handoff time histogram (real, from first_response→escalated).
+export function OLAHandoff({ model, records, open }) {
+  const vals = inWindow(records, model).filter((r) => r.ola_handoff_h != null && r.ola_handoff_h >= 0).map((r) => r.ola_handoff_h);
+  return (
+    <div className="panel span-2">
+      <h2>OLA — L1→L2 handoff time</h2>
+      <p className="why">From first response to escalation — how long L1 held work before handing to L2 ({vals.length} handoffs, real timestamps). <span className="hint">Click a bin.</span></p>
+      {records && <Histogram values={vals} bins={14} unit="h" fmt={(v) => Math.round(v)}
+        onPick={(lo, hi) => open({ type: "records", label: `Handoff ${Math.round(lo)}–${Math.round(hi)}h`, pred: (r) => r.ola_handoff_h != null && r.ola_handoff_h >= lo && r.ola_handoff_h < hi, reconcile: null })} />}
+    </div>
+  );
+}
+
+// 5.3 — resolution SLA outcome mix (donut).
+export function SlaOutcomeMix({ model, records }) {
+  const rows = inWindow(records, model).filter((r) => r.resolution_sla);
+  const CATS = [["Met", "var(--ok)"], ["Breached", "var(--crit)"], ["In progress", "var(--accent)"], ["Paused", "var(--muted)"]];
+  const slices = CATS.map(([k, color]) => ({ label: k, color, value: rows.filter((r) => r.resolution_sla === k).length })).filter((s) => s.value);
+  const met = rows.filter((r) => r.resolution_sla === "Met").length;
+  return (
+    <div className="panel">
+      <h2>Resolution SLA outcome mix</h2>
+      <p className="why">Every ticket's resolution-clock verdict at a glance.</p>
+      {records && <div className="donut-row"><Donut slices={slices} center={{ v: rows.length ? `${Math.round(met / rows.length * 100)}%` : "—", k: "met" }} />
+        <div className="legend">{slices.map((s) => <div key={s.label} className="leg-item"><span className="leg-sw" style={{ background: s.color }} />{s.label} <span className="tnum">{s.value}</span></div>)}</div></div>}
+    </div>
+  );
+}
+
+// 5.1 — SLA attainment by work type × priority heatmap.
+export function SlaTypePriority({ model, records, open }) {
+  const rows = inWindow(records, model).filter((r) => ["Met", "Breached"].includes(r.resolution_sla));
+  const types = ["Incident", "Service Request", "Change", "Problem"].filter((t) => rows.some((r) => r.issue_type === t));
+  return (
+    <div className="panel span-2">
+      <h2>SLA attainment: type × priority</h2>
+      <p className="why">Attainment % in each type×priority cell — the hotspots of breach. Darker = higher attainment. {records ? "" : "Loading…"}</p>
+      {records && <Heatmap rows={types} cols={PRIORITIES.map((p) => PRI_SHORT[p])} w={560} labW={130}
+        cell={(type, ps) => { const p = PRIORITIES.find((x) => PRI_SHORT[x] === ps); const rs = rows.filter((r) => r.issue_type === type && r.priority === p); const met = rs.filter((r) => r.resolution_sla === "Met").length; return { value: rs.length ? Math.round(met / rs.length * 100) : 0, sub: rs.length ? `${rs.length}` : "" }; }}
+        onPick={(type, ps, d) => { const p = PRIORITIES.find((x) => PRI_SHORT[x] === ps); open({ type: "records", label: `${type} ${ps} · SLA`, pred: (r) => r.issue_type === type && r.priority === p && ["Met", "Breached"].includes(r.resolution_sla), hi: (r) => r.resolution_sla === "Breached", hiLab: "breached", reconcile: null }); }} />}
+    </div>
+  );
+}
+
+// 2.3 — service-request fulfilment aging histogram (open SRs).
+export function RequestAging({ model, records, open }) {
+  const open2 = inWindow(records, model).filter((r) => isReq(r) && r.is_open && r.age_days != null);
+  return (
+    <div className="panel">
+      <h2>Request fulfilment aging</h2>
+      <p className="why">Age of open service requests — the SR backlog's staleness ({open2.length} open). <span className="hint">Click a bin.</span></p>
+      {records && <Histogram values={open2.map((r) => r.age_days)} bins={10} unit="d" fmt={(v) => Math.round(v)}
+        onPick={(lo, hi) => open({ type: "records", label: `Open SR ${Math.round(lo)}–${Math.round(hi)}d`, pred: (r) => isReq(r) && r.is_open && r.age_days >= lo && r.age_days < hi, windowed: true, reconcile: null })} />}
+    </div>
+  );
+}
+
+// 8.1 — approval backlog aging.
+export function ApprovalAging({ model, records, open }) {
+  const pend = inWindow(records, model).filter((r) => /waiting for approval|awaiting cab/i.test(r.status) && r.age_days != null);
+  return (
+    <div className="panel">
+      <h2>Approval backlog aging</h2>
+      <p className="why">How long approvals have been pending — stuck gates are stuck work ({pend.length} pending). <span className="hint">Click a bin.</span></p>
+      {records && (pend.length ? <Histogram values={pend.map((r) => r.age_days)} bins={8} unit="d" fmt={(v) => Math.round(v)}
+        onPick={(lo, hi) => open({ type: "records", label: `Pending approval ${Math.round(lo)}–${Math.round(hi)}d`, pred: (r) => /waiting for approval|awaiting cab/i.test(r.status) && r.age_days >= lo && r.age_days < hi, windowed: true, reconcile: null })} />
+        : <p className="hint">No approvals pending.</p>)}
+    </div>
+  );
+}
+
+// 4.2 — RCA cycle time (Problem duration histogram, real).
+export function RCACycle({ model, records, open }) {
+  const probs = inWindow(records, model).filter((r) => r.issue_type === "Problem" && r.ttr_h != null);
+  return (
+    <div className="panel">
+      <h2>RCA cycle time</h2>
+      <p className="why">How long problem investigations take end-to-end ({probs.length} resolved problems, real dates). <span className="hint">Click a bin.</span></p>
+      {records && (probs.length ? <Histogram values={probs.map((r) => r.ttr_h / 24)} bins={8} unit="d" fmt={(v) => f1(v)}
+        onPick={(lo, hi) => open({ type: "records", label: `Problem RCA ${f1(lo)}–${f1(hi)}d`, pred: (r) => r.issue_type === "Problem" && r.ttr_h != null && r.ttr_h / 24 >= lo && r.ttr_h / 24 < hi, reconcile: null })} />
+        : <p className="hint">No resolved problems in window.</p>)}
+    </div>
+  );
+}
+
+// 6.2 — CSAT vs SLA-met cross-tab (grouped stacked bar).
+export function CSATvsSLA({ model, records }) {
+  const rows = inWindow(records, model).filter((r) => r.csat != null && ["Met", "Breached"].includes(r.resolution_sla));
+  const bin = (c) => (c >= 4 ? "satisfied" : c === 3 ? "neutral" : "dissatisfied");
+  const COL = { satisfied: "var(--ok)", neutral: "var(--warn)", dissatisfied: "var(--crit)" };
+  const srows = ["Met", "Breached"].map((o) => ({ label: o, parts: ["satisfied", "neutral", "dissatisfied"].map((b) => ({ key: b, value: rows.filter((r) => r.resolution_sla === o && bin(r.csat) === b).length, color: COL[b] })) }));
+  return (
+    <div className="panel span-2">
+      <h2>CSAT vs SLA outcome</h2>
+      <p className="why">Modelled satisfaction split by whether the SLA was met or breached — the independent signal, 100%-stacked. (Proxy, not a survey.)</p>
+      {records && <StackedBar rows={srows} labW={80} />}
+    </div>
+  );
+}
+
+// 6.4 — CSAT by tower (small-multiple bars of average).
+export function CSATByTower({ model, records }) {
+  const rows = inWindow(records, model).filter((r) => r.csat != null);
+  const towers = [...new Set(rows.map((r) => r.tower).filter(Boolean))];
+  const bars = towers.map((t) => { const rs = rows.filter((r) => r.tower === t); return { label: shortTower(t), value: rs.length ? Math.round(meanBy(rs, (r) => r.csat) * 100) / 100 : 0 }; }).filter((b) => b.value).sort((a, b) => b.value - a.value);
+  return (
+    <div className="panel">
+      <h2>CSAT by tower</h2>
+      <p className="why">Modelled average satisfaction per tower — where experience lags (proxy, not a survey).</p>
+      {records && <Bars rows={bars} barH={16} fmt={(v) => v.toFixed(2)} />}
+    </div>
+  );
+}
+
+// 7.1 — queue depth (open work by status, the queue proxy).
+export function QueueDepth({ model, records, open }) {
+  const rows = inWindow(records, model).filter((r) => r.is_open);
+  const c = {}; for (const r of rows) c[r.status] = (c[r.status] || 0) + 1;
+  const bars = Object.entries(c).sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value, color: tof(label) === "wait" ? "var(--muted)" : tof(label) === "L2" ? "var(--warn)" : "var(--accent)" }));
+  return (
+    <div className="panel span-2">
+      <h2>Queue depth</h2>
+      <p className="why">Open work by status — the live queues, coloured by tier. <span className="hint">Click a status.</span></p>
+      {records && <Bars rows={bars} barH={16} onPick={(b) => open({ type: "records", label: `Open · ${b.label}`, pred: (r) => r.is_open && r.status === b.label, windowed: true, reconcile: b.value })} />}
+    </div>
+  );
+}
+
+// 3.1/3.2 — change success + failed/backed-out.
+export function ChangeSuccess({ model, records }) {
+  const ch = inWindow(records, model).filter((r) => r.issue_type === "Change");
+  const done = ch.filter((r) => !r.is_open);
+  const declined = ch.filter((r) => r.status === "Declined").length;
+  const rolled = ch.filter((r) => /roll|back/i.test(r.resolution_code || "")).length;
+  const success = done.length ? Math.round((done.length - declined - rolled) / done.length * 100) : null;
+  return (
+    <div className="panel">
+      <h2>Change success rate</h2>
+      <p className="why">Share of completed changes that landed cleanly (not declined, not rolled back).</p>
+      <div className="miniboard">
+        <div><span className="k">changes</span><span className="v tnum">{ch.length}</span></div>
+        <div><span className="k">success</span><span className="v tnum" style={{ color: "var(--ok)" }}>{success == null ? "—" : success + "%"}</span></div>
+        <div><span className="k">declined</span><span className="v tnum">{declined}</span></div>
+        <div><span className="k">rolled back</span><span className="v tnum" style={{ color: rolled ? "var(--crit)" : "var(--ok)" }}>{rolled}</span></div>
+      </div>
+    </div>
+  );
+}
+
+// 4.1 — open problems & known-error backlog.
+export function ProblemBacklog({ model, records, open }) {
+  const probs = inWindow(records, model).filter((r) => r.issue_type === "Problem");
+  const openP = probs.filter((r) => r.is_open).length;
+  const knownError = probs.filter((r) => /known error/i.test(r.resolution_code || r.status || "")).length;
+  return (
+    <div className="panel">
+      <h2>Problem backlog</h2>
+      <p className="why">Open problems and documented known-errors — the investigation pipeline. <span className="hint">Click to drill.</span></p>
+      <div className="miniboard">
+        <div><span className="k">problems</span><span className="v tnum">{probs.length}</span></div>
+        <div className="clickable" onClick={() => open({ type: "records", label: "Open problems", pred: (r) => r.issue_type === "Problem" && r.is_open, windowed: true, reconcile: openP })}><span className="k">open</span><span className="v tnum" style={{ color: openP ? "var(--warn)" : "var(--ok)" }}>{openP}</span></div>
+        <div><span className="k">known errors</span><span className="v tnum">{knownError}</span></div>
+      </div>
+    </div>
+  );
+}
+
+// 13 — ITSM data-quality remediation board.
+export function DQBoard({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const checks = [
+    { k: "Resolved w/o root cause", bad: rows.filter((r) => !r.is_open && r.issue_type !== "Service Request" && !r.root_cause), },
+    { k: "Escalated w/o reason", bad: rows.filter((r) => r.is_escalated && !r.escalation_reason) },
+    { k: "Escalated w/o KB check", bad: rows.filter((r) => r.is_escalated && !r.kb_checked) },
+    { k: "Resolved w/o resolution code", bad: rows.filter((r) => !r.is_open && !r.resolution_code) },
+  ];
+  return (
+    <div className="panel span-2 integrity">
+      <h2>ITSM data-quality board <span className="why" style={{ display: "inline", margin: 0 }}>— the fields that must be filled for a metric to be trustworthy.</span></h2>
+      <div className="int-row">
+        {checks.map((c, i) => (
+          <div key={i} className={"int-cell " + (c.bad.length === 0 ? "ok" : "warn") + " clickable"} onClick={() => c.bad.length && open({ type: "records", label: c.k, pred: (r) => c.bad.includes(r), windowed: true, reconcile: c.bad.length })}>
+            <span className="int-k">{c.k}</span><span className="int-v tnum" style={{ color: c.bad.length ? "var(--crit)" : "var(--ok)" }}>{c.bad.length}</span>
+            <span className="int-note">{c.bad.length === 0 ? "clean" : "records missing this field"}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ==== Part IV — OPS catalog completion ================================================
 const TOWER_COLORS = ["var(--accent)", "var(--warn)", "var(--ok)", "var(--crit)", "#7c9", "#c9a"];
 const PRI_COLORS = { "P1 - Critical": "var(--crit)", "P2 - High": "var(--warn)", "P3 - Medium": "var(--accent)", "P4 - Low": "var(--muted)" };
