@@ -223,6 +223,15 @@ tr.clickable:hover td { background: var(--accent-dim); }
 .int-v { font-size: 1.1rem; font-weight: 650; }
 .int-note { font-size: 0.72rem; color: var(--muted); }
 
+/* ITSM chart forms (Part V) */
+.chart-lab { font-family: var(--mono); font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.03em;
+  color: var(--muted); margin-bottom: 0.3rem; }
+.donut-row { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin-top: 0.5rem; }
+.legend { display: grid; gap: 0.25rem; }
+.leg-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; color: var(--ink-soft); }
+.leg-item .tnum { margin-left: auto; color: var(--ink); }
+.leg-sw { width: 10px; height: 10px; border-radius: 2px; flex: 0 0 auto; }
+
 /* Insights & Intelligence layer (Part VI) */
 .seg-sm { display: inline-flex; gap: 2px; }
 .seg-sm button { font-size: 0.68rem; padding: 0.2rem 0.5rem; background: var(--raised); border: 1px solid var(--rule);

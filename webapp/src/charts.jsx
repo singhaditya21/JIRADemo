@@ -133,6 +133,90 @@ export function Heatmap({ rows, cols, cell, onPick, w = 380, cellH = 46, labW = 
   );
 }
 
+// Horizontal box-plots — one row per group. `groups`: [{label, min,q1,med,q3,max,n}].
+// The distribution the mean hides: MTTR per priority, dwell per tower, etc.
+export function BoxPlot({ groups, w = 520, rowH = 30, gap = 8, fmt = (v) => v, unit = "" }) {
+  const all = groups.flatMap((g) => [g.min, g.max]).filter((v) => v != null);
+  const max = Math.max(1, ...all);
+  const labW = 74, axW = w - labW - 96;
+  const x = (v) => labW + (v / max) * axW;
+  const h = groups.length * (rowH + gap) + 6;
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} width="100%">
+      {groups.map((g, i) => {
+        const y = i * (rowH + gap) + rowH / 2;
+        if (!g.n || g.med == null) return (
+          <g key={i}><text x={0} y={y + 4} fontSize="11" fill="var(--ink)">{g.label}</text>
+            <text x={labW} y={y + 4} fontSize="10" fill="var(--muted)" fontFamily="var(--mono)">no data</text></g>);
+        return (
+          <g key={i}>
+            <text x={0} y={y + 4} fontSize="11" fill="var(--ink)">{g.label}</text>
+            <line x1={x(g.min)} x2={x(g.max)} y1={y} y2={y} stroke="var(--rule)" />
+            <line x1={x(g.min)} x2={x(g.min)} y1={y - 5} y2={y + 5} stroke="var(--rule)" />
+            <line x1={x(g.max)} x2={x(g.max)} y1={y - 5} y2={y + 5} stroke="var(--rule)" />
+            <rect x={x(g.q1)} y={y - 8} width={Math.max(1, x(g.q3) - x(g.q1))} height="16" rx="2" fill="var(--accent)" opacity="0.28" stroke="var(--accent)" />
+            <line x1={x(g.med)} x2={x(g.med)} y1={y - 8} y2={y + 8} stroke="var(--accent)" strokeWidth="2" />
+            <text x={w} y={y + 4} fontSize="9" textAnchor="end" fill="var(--muted)" fontFamily="var(--mono)">{fmt(g.med)}{unit} · n{g.n}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// Dot-plot on a shared 0–100% axis — attainment per category, one dot each, target line.
+export function DotPlot({ rows, w = 520, rowH = 24, target = null }) {
+  const labW = 140, axW = w - labW - 48;
+  const x = (v) => labW + (v / 100) * axW;
+  const h = rows.length * rowH + 18;
+  const r1 = (v) => Math.round(v * 10) / 10;
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} width="100%">
+      {[0, 50, 100].map((t) => (
+        <g key={t}><line x1={x(t)} x2={x(t)} y1={0} y2={h - 16} stroke="var(--rule)" opacity="0.5" />
+          <text x={x(t)} y={h - 4} fontSize="8" textAnchor="middle" fill="var(--muted)" fontFamily="var(--mono)">{t}%</text></g>))}
+      {target != null && <line x1={x(target)} x2={x(target)} y1={0} y2={h - 16} stroke="var(--accent)" strokeDasharray="3 3" />}
+      {rows.map((r, i) => {
+        const y = i * rowH + rowH / 2;
+        const col = r.value >= (target ?? 0) ? "var(--ok)" : "var(--crit)";
+        return (
+          <g key={i} onClick={r.onPick} style={r.onPick ? { cursor: "pointer" } : undefined}>
+            {r.onPick && <rect x={0} y={i * rowH} width={w} height={rowH} fill="transparent" />}
+            <text x={0} y={y + 4} fontSize="11" fill="var(--ink)">{r.label}</text>
+            <line x1={labW} x2={x(r.value)} y1={y} y2={y} stroke="var(--rule)" />
+            <circle cx={x(r.value)} cy={y} r="5" fill={col} />
+            <text x={w} y={y + 4} fontSize="10" textAnchor="end" fill="var(--ink-soft)" fontFamily="var(--mono)">{r1(r.value)}%{r.n != null ? ` (${r.n})` : ""}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// Donut with an optional center label. `slices`: [{label,value,color}].
+export function Donut({ slices, w = 190, thickness = 30, center = null, onPick }) {
+  const total = slices.reduce((a, s) => a + s.value, 0) || 1;
+  const r = w / 2 - 3, ir = r - thickness, cx = w / 2, cy = w / 2;
+  let a0 = -Math.PI / 2;
+  const arc = (s, e) => {
+    const x0 = cx + r * Math.cos(s), y0 = cy + r * Math.sin(s), x1 = cx + r * Math.cos(e), y1 = cy + r * Math.sin(e);
+    const xi1 = cx + ir * Math.cos(e), yi1 = cy + ir * Math.sin(e), xi0 = cx + ir * Math.cos(s), yi0 = cy + ir * Math.sin(s);
+    const large = e - s > Math.PI ? 1 : 0;
+    return `M${x0},${y0} A${r},${r} 0 ${large} 1 ${x1},${y1} L${xi1},${yi1} A${ir},${ir} 0 ${large} 0 ${xi0},${yi0} Z`;
+  };
+  return (
+    <svg viewBox={`0 0 ${w} ${w}`} width={w} style={{ maxWidth: "100%" }}>
+      {slices.map((s, i) => {
+        const a1 = a0 + (s.value / total) * 2 * Math.PI, d = arc(a0, a1); a0 = a1;
+        return <path key={i} d={d} fill={s.color} opacity="0.9" onClick={onPick ? () => onPick(s) : undefined}
+          style={onPick ? { cursor: "pointer" } : undefined}><title>{s.label}: {s.value}</title></path>;
+      })}
+      {center && <text x={cx} y={cy - 1} fontSize="20" textAnchor="middle" fontWeight="650" fontFamily="var(--mono)" fill="var(--ink)">{center.v}</text>}
+      {center && <text x={cx} y={cy + 15} fontSize="9" textAnchor="middle" fill="var(--muted)" fontFamily="var(--mono)">{center.k}</text>}
+    </svg>
+  );
+}
+
 // FTR vs reopen scatter over weeks - the pairing that makes gaming visible.
 export function Pairing({ weeks, r, w = 480, h = 260, pad = 34, onPick }) {
   // The model (app/analytics.ftr_vs_reopen) keys these ftr_pct / reopen_pct.

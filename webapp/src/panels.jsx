@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Sparkline, Bars, AnalystBand, Pairing, Heatmap } from "./charts.jsx";
+import { Sparkline, Bars, AnalystBand, Pairing, Heatmap, BoxPlot, DotPlot, Donut } from "./charts.jsx";
 
 const f1 = (v) => (v == null ? "—" : (Math.round(v * 10) / 10).toFixed(1));
 const pct = (v) => (v == null ? "—" : f1(v) + "%");
@@ -454,6 +454,12 @@ const sdArr = (xs) => { if (xs.length < 2) return null; const m = meanArr(xs); r
 const isImproving = (key, d) => (d === 0 ? null : BETTER[key] === "up" ? d > 0 : d < 0);
 const kpiFmt = (key, v) => (v == null ? "—" : key === "aged_14d" ? `${Math.round(v)}` : `${f1(v)}%`);
 
+// Distribution stats for box-plots (roadmap's box-plot forms).
+const quantile = (s, q) => { if (!s.length) return null; const p = (s.length - 1) * q, b = Math.floor(p), r = p - b; return s[b + 1] != null ? s[b] + r * (s[b + 1] - s[b]) : s[b]; };
+const boxStats = (xs) => { const s = [...xs].filter((v) => v != null).sort((a, b) => a - b); return s.length ? { min: s[0], q1: quantile(s, 0.25), med: quantile(s, 0.5), q3: quantile(s, 0.75), max: s[s.length - 1], n: s.length } : { n: 0 }; };
+const PRIORITIES = ["P1 - Critical", "P2 - High", "P3 - Medium", "P4 - Low"];
+const PRI_SHORT = { "P1 - Critical": "P1", "P2 - High": "P2", "P3 - Medium": "P3", "P4 - Low": "P4" };
+
 // Every tower vs the BEST tower on a chosen KPI — the internal benchmark, no external data.
 export function BenchmarkLeague({ model, open }) {
   const towers = (model.towers || []).filter((t) => t.known !== false && t.volume);
@@ -714,10 +720,16 @@ export function IncidentManagement({ model, records, open }) {
   const major = inc.filter((r) => r.priority === "P1 - Critical").length;
   const openInc = inc.filter((r) => r.is_open).length;
   const reopened = inc.filter((r) => r.is_reopened).length;
+  // MTTR distribution per priority — the spread the single MTTR number hides (roadmap 1.2).
+  const box = PRIORITIES.map((p) => {
+    const st = boxStats(inc.filter((r) => r.priority === p && r.resolved_at).map(ttrHours));
+    const toD = (h) => (h == null ? null : h / 24);   // hours -> days for the axis
+    return { label: PRI_SHORT[p], n: st.n, min: toD(st.min), q1: toD(st.q1), med: toD(st.med), q3: toD(st.q3), max: toD(st.max) };
+  });
   return (
     <div className="panel span-2">
       <h2>Incident management</h2>
-      <p className="why">The core ITIL desk. MTTA = time to first response; MTTR = reported → resolved. {records ? "" : "Loading…"}</p>
+      <p className="why">The core ITIL desk. MTTA = time to first response; MTTR = reported → resolved. The box-plot shows MTTR's <em>spread</em> per priority — the tail the mean hides. {records ? "" : "Loading…"} <span className="hint">Click a priority row.</span></p>
       {records && (
         <>
           <div className="miniboard">
@@ -728,6 +740,8 @@ export function IncidentManagement({ model, records, open }) {
             <div><span className="k">open</span><span className="v tnum" style={{ color: openInc ? "var(--warn)" : "var(--ok)" }}>{openInc}</span></div>
             <div><span className="k">reopened</span><span className="v tnum">{reopened}</span></div>
           </div>
+          <div className="chart-lab" style={{ marginTop: "0.6rem" }}>MTTR by priority — box = Q1·median·Q3, whiskers = min/max (days)</div>
+          <BoxPlot groups={box} unit="d" fmt={(v) => f1(v)} />
           <button className="linkish" onClick={() => open({ type: "records", label: "Incidents", pred: (r) => r.issue_type === "Incident", hi: (r) => r.is_open, hiLab: "open", reconcile: inc.length, jql: `project = ITSM AND issuetype = Incident` })}>see the {inc.length} incidents →</button>
         </>
       )}
@@ -824,10 +838,14 @@ export function RequestFulfilment({ model, records, open }) {
   const fulfilled = req.filter((r) => !r.is_open).length;
   const pending = rows.filter((r) => /waiting for approval|awaiting cab/i.test(r.status)).length;
   const declined = rows.filter((r) => r.status === "Declined").length;
+  // Channel mix — portal is the self-service lane (deflection proxy), roadmap 2.4.
+  const CH = [["Portal", "var(--ok)"], ["Email", "var(--accent)"], ["Chat", "var(--warn)"], ["Monitoring", "var(--muted)"]];
+  const slices = CH.map(([label, color]) => ({ label, color, value: req.filter((r) => r.intake === label).length })).filter((s) => s.value);
+  const portalPct = req.length ? Math.round(req.filter((r) => r.intake === "Portal").length / req.length * 100) : 0;
   return (
     <div className="panel">
       <h2>Service request fulfilment</h2>
-      <p className="why">Requests and their approval gates. {records ? "" : "Loading…"}</p>
+      <p className="why">Requests, their approval gates, and the channel mix — Portal is the self-service lane (a deflection proxy). {records ? "" : "Loading…"}</p>
       {records && (
         <>
           <div className="miniboard">
@@ -835,6 +853,12 @@ export function RequestFulfilment({ model, records, open }) {
             <div><span className="k">fulfilled</span><span className="v tnum">{fulfilled}</span></div>
             <div><span className="k">pending approval</span><span className="v tnum" style={{ color: pending ? "var(--warn)" : "var(--ok)" }}>{pending}</span></div>
             <div><span className="k">declined</span><span className="v tnum">{declined}</span></div>
+          </div>
+          <div className="donut-row">
+            <Donut slices={slices} center={{ v: `${portalPct}%`, k: "portal" }} />
+            <div className="legend">{slices.map((s) => (
+              <div key={s.label} className="leg-item"><span className="leg-sw" style={{ background: s.color }} />{s.label} <span className="tnum">{s.value}</span></div>
+            ))}</div>
           </div>
           <button className="linkish" onClick={() => open({ type: "records", label: "Awaiting approval", pred: (r) => /waiting for approval|awaiting cab/i.test(r.status), windowed: false, reconcile: pending, jql: `project = ITSM AND status in ("Waiting for approval", "Awaiting CAB approval")` })}>see the {pending} awaiting approval →</button>
         </>
@@ -909,16 +933,22 @@ export function SlaByType({ model, records, open }) {
   return (
     <div className="panel">
       <h2>SLA attainment by work type</h2>
-      <p className="why">Resolution SLA met vs breached, per ITIL work type — where the desk is losing time. {records ? "" : "Loading…"} <span className="hint">Click a row.</span></p>
+      <p className="why">Resolution SLA met vs breached, per ITIL work type — where the desk is losing time. The dot-plot puts each type on one axis against the 95% target. {records ? "" : "Loading…"} <span className="hint">Click a row or dot.</span></p>
       {records && (
-        <div className="scrollx"><table>
-          <thead><tr><th>Type</th><th className="num">Met</th><th className="num">Breached</th><th className="num">Attainment</th></tr></thead>
-          <tbody>{data.map((d) => (
-            <tr key={d.t} className="clickable" onClick={() => open({ type: "records", label: `${d.t} · SLA`, pred: (r) => (r.issue_type === d.t || (d.t === "Service Request" && r.issue_type === "Service Request with Approvals")) && ["Met", "Breached"].includes(r.resolution_sla), hi: (r) => r.resolution_sla === "Breached", hiLab: "breached", reconcile: d.met + d.br, jql: `project = ITSM AND issuetype = "${d.t}" AND cf[10051] in (Met, Breached)` })}>
-              <td>{d.t}</td><td className="num tnum">{d.met}</td><td className="num tnum">{d.br}</td><td className="num tnum">{pct(d.att)}</td>
-            </tr>
-          ))}</tbody>
-        </table></div>
+        <>
+          <DotPlot target={95} rows={data.filter((d) => d.att != null).map((d) => ({
+            label: d.t, value: d.att, n: d.met + d.br,
+            onPick: () => open({ type: "records", label: `${d.t} · SLA`, pred: (r) => (r.issue_type === d.t || (d.t === "Service Request" && r.issue_type === "Service Request with Approvals")) && ["Met", "Breached"].includes(r.resolution_sla), hi: (r) => r.resolution_sla === "Breached", hiLab: "breached", reconcile: d.met + d.br, jql: `project = ITSM AND issuetype = "${d.t}" AND cf[10051] in (Met, Breached)` }),
+          }))} />
+          <div className="scrollx" style={{ marginTop: "0.4rem" }}><table>
+            <thead><tr><th>Type</th><th className="num">Met</th><th className="num">Breached</th><th className="num">Attainment</th></tr></thead>
+            <tbody>{data.map((d) => (
+              <tr key={d.t} className="clickable" onClick={() => open({ type: "records", label: `${d.t} · SLA`, pred: (r) => (r.issue_type === d.t || (d.t === "Service Request" && r.issue_type === "Service Request with Approvals")) && ["Met", "Breached"].includes(r.resolution_sla), hi: (r) => r.resolution_sla === "Breached", hiLab: "breached", reconcile: d.met + d.br, jql: `project = ITSM AND issuetype = "${d.t}" AND cf[10051] in (Met, Breached)` })}>
+                <td>{d.t}</td><td className="num tnum">{d.met}</td><td className="num tnum">{d.br}</td><td className="num tnum">{pct(d.att)}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        </>
       )}
     </div>
   );
