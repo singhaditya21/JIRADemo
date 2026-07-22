@@ -11,8 +11,13 @@ name: Link ITSM problems to incidents
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: "inspect (read-only dump) · link (create) · repair (fix direction)"
+        type: choice
+        options: [inspect, link, repair]
+        default: inspect
       dry_run:
-        description: "Rehearse only — create no links (uncheck to write to Jira)"
+        description: "Rehearse only — write nothing (uncheck to actually write to Jira)"
         type: boolean
         default: true
       per_problem:
@@ -30,22 +35,40 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Create Problem→Incident links
+      - name: Run the Problem→Incident linker
+        # SECURITY: every workflow input is passed through `env:` and referenced as a shell
+        # variable ("$DRY_RUN", "$PER_PROBLEM", "$MODE") — NEVER interpolated as ${{ ... }} into
+        # the script body, which would let an input value inject shell commands into a step that
+        # holds JIRA_TOKEN. per_problem is validated as an integer before use.
+        #
+        # FAIL-SAFE gate: --dry-run stays on unless dry_run is an explicit falsey string. The
+        # decision is a bash `case` on the interpolated string (deterministic), not a GitHub
+        # `${{ == }}` ternary (whose type coercion once defaulted a real run back to dry-run).
         env:
           JIRA_SITE: ${{ secrets.JIRA_SITE }}
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
           JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
-        # FAIL-SAFE decision made in BASH, not a GitHub `${{ }}` ternary. GitHub's expression
-        # `==` coerces booleans and strings to numbers, so `inputs.dry_run == false` can be
-        # false even for a false input — which silently defaulted a real run back to a dry run.
-        # String INTERPOLATION is deterministic though: `${{ inputs.dry_run }}` renders as the
-        # literal "true"/"false", so we branch on that. --dry-run stays on unless the input is
-        # an explicit falsey string, so a misread never writes to Jira by accident.
+          MODE: ${{ inputs.mode }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          PER_PROBLEM: ${{ inputs.per_problem }}
         run: |
-          echo "dry_run input rendered as: '${{ inputs.dry_run }}'"
+          set -euo pipefail
+          case "$PER_PROBLEM" in
+            ''|*[!0-9]*) echo "per_problem must be a positive integer, got '$PER_PROBLEM'"; exit 1 ;;
+          esac
           FLAG="--dry-run"
-          case "${{ inputs.dry_run }}" in
+          case "$DRY_RUN" in
             false|False|FALSE|no|No|0|off) FLAG="" ;;
           esac
-          echo "linker mode: ${FLAG:-APPLY (writing real links)}"
-          python3 -m jira_config.link_problems $FLAG --per-problem "${{ inputs.per_problem }}"
+          echo "mode=$MODE  dry_run='$DRY_RUN'  per_problem=$PER_PROBLEM"
+          case "$MODE" in
+            inspect)
+              echo "MODE: inspect (read-only, no writes)"
+              python3 -m jira_config.link_problems --inspect ;;
+            repair)
+              echo "MODE: repair  gate: ${FLAG:-APPLY (writing to Jira)}"
+              python3 -m jira_config.link_problems --repair $FLAG --per-problem "$PER_PROBLEM" ;;
+            *)
+              echo "MODE: link  gate: ${FLAG:-APPLY (writing real links)}"
+              python3 -m jira_config.link_problems $FLAG --per-problem "$PER_PROBLEM" ;;
+          esac

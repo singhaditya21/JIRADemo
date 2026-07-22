@@ -81,15 +81,58 @@ def already_linked(problem, incident_key):
     return any((l.get("key") == incident_key) for l in (problem.links or []))
 
 
+def inspect(j):
+    """Read-only: dump the RAW issuelinks structure for a couple of linked Problems and one
+    of their Incidents, so we can see EXACTLY how Jira stored the direction (which of
+    inwardIssue/outwardIssue the neighbour sits under) before deciding any repair. No writes."""
+    F = FIELDS.resolve(j)
+    st = S.fetch(j, PROJECT, F)
+    problems = [i for i in st.issues if i.issue_type == "Problem" and i.links][:2]
+    if not problems:
+        log("no linked Problems to inspect")
+        return 0
+    for p in problems:
+        raw = j.get("/rest/api/3/issue/%s?fields=issuelinks" % p.key)
+        links = ((raw.get("fields") or {}).get("issuelinks")) or []
+        log("PROBLEM %s: %d raw issuelink(s)" % (p.key, len(links)))
+        neigh = None
+        for l in links[:3]:
+            t = l.get("type") or {}
+            side = "outwardIssue" if l.get("outwardIssue") else "inwardIssue"
+            nb = (l.get(side) or {}).get("key")
+            neigh = neigh or nb
+            log("   id=%s type='%s' outward='%s' inward='%s' | neighbour %s sits under '%s'"
+                % (l.get("id"), t.get("name"), t.get("outward"), t.get("inward"), nb, side))
+        if neigh:
+            raw2 = j.get("/rest/api/3/issue/%s?fields=issuelinks" % neigh)
+            for l in (((raw2.get("fields") or {}).get("issuelinks")) or []):
+                side = "outwardIssue" if l.get("outwardIssue") else "inwardIssue"
+                nb = (l.get(side) or {}).get("key")
+                if nb == p.key:
+                    t = l.get("type") or {}
+                    log("   RECIPROCAL on INCIDENT %s: neighbour %s sits under '%s' (type '%s')"
+                        % (neigh, p.key, side, t.get("name")))
+    log("interpretation: on an issue, `outwardIssue: X` means this-issue --outward-label--> X; "
+        "`inwardIssue: X` means X --outward-label--> this-issue. For a 'causes' outward label, "
+        "the Problem is the correct root cause only if the Incident sits under the Problem's outwardIssue.")
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--per-problem", type=int, default=4, help="base links per problem (4..8)")
     ap.add_argument("--limit", type=int, default=0, help="cap total links created (0 = no cap)")
+    ap.add_argument("--inspect", action="store_true",
+                    help="read-only: dump how Jira actually stored the link direction, then exit")
     args = ap.parse_args(argv)
 
     require_env()
     j = Jira()
+
+    if args.inspect:
+        return inspect(j)
+
     w = Writer(j, dry=args.dry_run)
 
     lt = pick_link_type(j)

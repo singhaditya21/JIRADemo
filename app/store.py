@@ -175,7 +175,7 @@ def _parse_links(raw):
         else:
             continue
         of = oi.get("fields") or {}
-        out.append({"key": oi.get("key"), "rel": rel, "dir": direction,
+        out.append({"id": l.get("id"), "key": oi.get("key"), "rel": rel, "dir": direction,
                     "type": t.get("name"),
                     "issue_type": (of.get("issuetype") or {}).get("name"),
                     "status": (of.get("status") or {}).get("name")})
