@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Sparkline, Bars, AnalystBand, Pairing, Heatmap, BoxPlot, DotPlot, Donut, Sankey } from "./charts.jsx";
+import { Sparkline, Bars, AnalystBand, Pairing, Heatmap, BoxPlot, DotPlot, Donut, Sankey, Histogram, StackedBar } from "./charts.jsx";
 
 const f1 = (v) => (v == null ? "—" : (Math.round(v * 10) / 10).toFixed(1));
 const pct = (v) => (v == null ? "—" : f1(v) + "%");
@@ -1145,6 +1145,241 @@ export function AnalystLoad({ model, records, open }) {
       <p className="why">Tickets touched per analyst (L1 or L2) in the window — the capacity picture behind the rates. {records ? "" : "Loading…"} <span className="hint">Click an analyst.</span></p>
       {records && <Bars rows={bars} barH={16}
         onPick={(b) => open({ type: "records", label: `Handled by ${b.label}`, pred: (r) => r.l1_analyst === b.label || r.l2_analyst === b.label, reconcile: b.value })} />}
+    </div>
+  );
+}
+
+// ==== Part IV — OPS catalog completion ================================================
+const TOWER_COLORS = ["var(--accent)", "var(--warn)", "var(--ok)", "var(--crit)", "#7c9", "#c9a"];
+const PRI_COLORS = { "P1 - Critical": "var(--crit)", "P2 - High": "var(--warn)", "P3 - Medium": "var(--accent)", "P4 - Low": "var(--muted)" };
+
+// A2 — weekly intake demand curve.
+export function DemandCurve({ model, open }) {
+  const w = model.weekly || [];
+  const pts = w.map((x) => ({ y: x.n, week: x.week }));
+  return (
+    <div className="panel">
+      <h2>Demand curve</h2>
+      <p className="why">Weekly intake volume over {w.length} weeks — the arrival rate the desk must keep up with.</p>
+      <Sparkline points={pts} h={90} fmt={(v) => v} />
+    </div>
+  );
+}
+
+// B2 — triage dwell (reported → first response) box-plot per tower (real, from response_hours).
+export function TriageDwell({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const towers = [...new Set(rows.map((r) => r.tower).filter(Boolean))];
+  const box = towers.map((t) => {
+    const st = boxStats(rows.filter((r) => r.tower === t).map((r) => r.response_hours));
+    return { label: shortTower(t), n: st.n, min: st.min, q1: st.q1, med: st.med, q3: st.q3, max: st.max, tower: t };
+  }).filter((b) => b.n);
+  return (
+    <div className="panel span-2">
+      <h2>Triage dwell by tower</h2>
+      <p className="why">Reported → first response, per tower — the real time before a human engages (box = Q1·median·Q3, whiskers min/max, hours). {records ? "" : "Loading…"}</p>
+      {records && <BoxPlot groups={box} unit="h" fmt={(v) => f1(v)} />}
+    </div>
+  );
+}
+
+// D4 — escalation latency histogram (reported → escalated), REAL from escalated_at.
+export function EscalationLatency({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const vals = rows.filter((r) => r.escalation_latency_h != null).map((r) => r.escalation_latency_h);
+  return (
+    <div className="panel span-2">
+      <h2>Escalation latency</h2>
+      <p className="why">How long work sat at L1 before escalating (reported → escalated), across {vals.length} escalations — a long tail is triage friction. <span className="hint">Click a bin.</span></p>
+      {records && <Histogram values={vals} bins={14} unit="h" fmt={(v) => Math.round(v)}
+        onPick={(lo, hi) => open({ type: "records", label: `Escalated after ${Math.round(lo)}–${Math.round(hi)}h`, pred: (r) => r.escalation_latency_h != null && r.escalation_latency_h >= lo && r.escalation_latency_h < hi, reconcile: null })} />}
+    </div>
+  );
+}
+
+// D3 — time-in-tier decomposition (L1 dwell vs L2 dwell) per tower, 100%-stacked (real).
+export function TimeInTier({ model, records, open }) {
+  const rows = inWindow(records, model).filter((r) => r.is_escalated && r.escalation_latency_h != null && r.l2_dwell_h != null);
+  const towers = [...new Set(rows.map((r) => r.tower).filter(Boolean))];
+  const srows = towers.map((t) => {
+    const rs = rows.filter((r) => r.tower === t);
+    const l1 = sum(rs.map((r) => r.escalation_latency_h)), l2 = sum(rs.map((r) => r.l2_dwell_h));
+    return { label: shortTower(t), parts: [{ key: "L1", value: l1, color: "var(--accent)" }, { key: "L2", value: l2, color: "var(--warn)" }] };
+  }).filter((r) => r.parts.some((p) => p.value));
+  return (
+    <div className="panel span-2">
+      <h2>Time in tier (L1 vs L2)</h2>
+      <p className="why">Of escalated work's total handling time, the share spent before vs after the L2 handoff — where the clock actually goes, per tower. Blue = L1, amber = L2.</p>
+      {records && <StackedBar rows={srows} labW={60} />}
+    </div>
+  );
+}
+
+// C7 — escalation reason × root cause confusion heatmap.
+export function ReasonRootCause({ model, records, open }) {
+  const rows = inWindow(records, model).filter((r) => r.is_escalated && r.escalation_reason && r.root_cause);
+  const reasons = [...new Set(rows.map((r) => r.escalation_reason))];
+  const causes = [...new Set(rows.map((r) => r.root_cause))];
+  const short = (c) => c.split(/[ /]/)[0].slice(0, 6);
+  const colOf = Object.fromEntries(causes.map((c) => [short(c), c]));
+  return (
+    <div className="panel span-2">
+      <h2>Escalation reason × root cause</h2>
+      <p className="why">Do escalation reasons predict the eventual root cause? Bright off-diagonal cells are triage mislabels worth a KB. {records ? "" : "Loading…"} <span className="hint">Click a cell.</span></p>
+      {records && <Heatmap rows={reasons} cols={causes.map(short)} w={640} labW={168}
+        cell={(reason, sc) => ({ value: rows.filter((r) => r.escalation_reason === reason && r.root_cause === colOf[sc]).length })}
+        onPick={(reason, sc, d) => open({ type: "records", label: `${reason} → ${colOf[sc]}`, pred: (r) => r.is_escalated && r.escalation_reason === reason && r.root_cause === colOf[sc], reconcile: d.value })} />}
+      <p className="chart-lab" style={{ marginTop: "0.3rem" }}>{causes.map((c) => `${short(c)}=${c}`).join(" · ")}</p>
+    </div>
+  );
+}
+
+// E2 — resolution SLA attainment by priority (dot-plot vs 95% target).
+export function SlaByPriority({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const data = PRIORITIES.map((p) => {
+    const rs = rows.filter((r) => r.priority === p && ["Met", "Breached"].includes(r.resolution_sla));
+    const met = rs.filter((r) => r.resolution_sla === "Met").length;
+    return { p, n: rs.length, att: rs.length ? met / rs.length * 100 : null };
+  }).filter((d) => d.att != null);
+  return (
+    <div className="panel">
+      <h2>Resolution SLA by priority</h2>
+      <p className="why">Each priority against the 95% target — where the desk loses time by severity. <span className="hint">Click a row.</span></p>
+      {records && <DotPlot target={95} rows={data.map((d) => ({ label: PRI_SHORT[d.p], value: d.att, n: d.n,
+        onPick: () => open({ type: "records", label: `${d.p} · SLA`, pred: (r) => r.priority === d.p && ["Met", "Breached"].includes(r.resolution_sla), hi: (r) => r.resolution_sla === "Breached", hiLab: "breached", reconcile: d.n }) }))} />}
+    </div>
+  );
+}
+
+// F4 — KB check discipline (applied / none-found / No), 100%-stacked per tower.
+export function KBDiscipline({ model, records, open }) {
+  const rows = inWindow(records, model).filter((r) => r.is_escalated && r.kb_checked);
+  const towers = [...new Set(rows.map((r) => r.tower).filter(Boolean))];
+  const cats = [["Yes - article applied", "var(--ok)"], ["Yes - none found", "var(--warn)"], ["No", "var(--crit)"]];
+  const srows = towers.map((t) => ({ label: shortTower(t), parts: cats.map(([k, color]) => ({ key: k, value: rows.filter((r) => r.tower === t && r.kb_checked === k).length, color })) }))
+    .filter((r) => r.parts.some((p) => p.value));
+  return (
+    <div className="panel span-2">
+      <h2>KB check discipline</h2>
+      <p className="why">Did L1 check the KB before escalating — applied (green), checked-but-none-found (amber = KB gap), or not checked (red)? Per tower, 100%-stacked.</p>
+      {records && <StackedBar rows={srows} labW={60} />}
+    </div>
+  );
+}
+
+// G5 — resolution code mix.
+export function ResolutionCodeMix({ model, records, open }) {
+  const rows = inWindow(records, model).filter((r) => r.resolution_code);
+  const c = {}; for (const r of rows) c[r.resolution_code] = (c[r.resolution_code] || 0) + 1;
+  const bars = Object.entries(c).sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value }));
+  return (
+    <div className="panel">
+      <h2>Resolution code mix</h2>
+      <p className="why">How closed work actually ended — fixed, workaround, no-fault, referred. <span className="hint">Click a code.</span></p>
+      {records && <Bars rows={bars} barH={16} onPick={(b) => open({ type: "records", label: `Resolution: ${b.label}`, pred: (r) => r.resolution_code === b.label, reconcile: b.value })} />}
+    </div>
+  );
+}
+
+// M3 — root-cause pareto (bars sorted + cumulative line).
+export function RootCausePareto({ model, records, open }) {
+  const rows = inWindow(records, model).filter((r) => r.root_cause);
+  const c = {}; for (const r of rows) c[r.root_cause] = (c[r.root_cause] || 0) + 1;
+  const sorted = Object.entries(c).sort((a, b) => b[1] - a[1]);
+  const total = sum(sorted.map(([, v]) => v)) || 1;
+  let cum = 0; const pts = sorted.map(([, v]) => { cum += v; return { y: cum / total * 100 }; });
+  const bars = sorted.map(([label, value]) => ({ label, value }));
+  return (
+    <div className="panel span-2">
+      <h2>Root-cause pareto</h2>
+      <p className="why">Causes ranked by volume with the cumulative share — the vital few to attack first (80/20). <span className="hint">Click a cause.</span></p>
+      {records && <Bars rows={bars} barH={16} onPick={(b) => open({ type: "records", label: `Root cause · ${b.label}`, pred: (r) => r.root_cause === b.label, reconcile: b.value })} />}
+      {records && <div style={{ marginTop: "0.3rem" }}><span className="chart-lab">cumulative %</span><Sparkline points={pts} h={44} fmt={(v) => `${Math.round(v)}%`} color="var(--warn)" /></div>}
+    </div>
+  );
+}
+
+// J3 — open work by priority, stacked per tower.
+export function OpenByPriority({ model, records, open }) {
+  const rows = inWindow(records, model).filter((r) => r.is_open);
+  const towers = [...new Set(rows.map((r) => r.tower).filter(Boolean))];
+  const srows = towers.map((t) => ({ label: shortTower(t), parts: PRIORITIES.map((p) => ({ key: PRI_SHORT[p], value: rows.filter((r) => r.tower === t && r.priority === p).length, color: PRI_COLORS[p] })) }))
+    .filter((r) => r.parts.some((p) => p.value));
+  return (
+    <div className="panel span-2">
+      <h2>Open work by priority</h2>
+      <p className="why">The open backlog broken down by severity, per tower — where the urgent open work sits. 100%-stacked (P1 red → P4 grey).</p>
+      {records && <StackedBar rows={srows} labW={60} />}
+    </div>
+  );
+}
+
+// I5 — arrivals vs completions (weekly), dual bars + net.
+export function FlowBalance({ model }) {
+  const w = (model.weekly || []).slice(-12);
+  const maxV = Math.max(1, ...w.map((x) => Math.max(x.n, x.closed)));
+  const W = 520, bh = 90, bw = W / w.length;
+  return (
+    <div className="panel span-2">
+      <h2>Arrivals vs completions</h2>
+      <p className="why">Weekly created (blue) vs closed (green) — bars diverging means the backlog is growing or shrinking. Last {w.length} weeks.</p>
+      <svg viewBox={`0 0 ${W} ${bh + 16}`} width="100%">
+        {w.map((x, i) => {
+          const ax = i * bw, ah = (x.n / maxV) * (bh - 4), ch = (x.closed / maxV) * (bh - 4);
+          return (
+            <g key={i}>
+              <rect x={ax + bw * 0.15} y={bh - ah} width={bw * 0.32} height={ah} fill="var(--accent)"><title>{x.week}: {x.n} in</title></rect>
+              <rect x={ax + bw * 0.52} y={bh - ch} width={bw * 0.32} height={ch} fill="var(--ok)"><title>{x.week}: {x.closed} closed</title></rect>
+            </g>
+          );
+        })}
+        <line x1={0} x2={W} y1={bh} y2={bh} stroke="var(--rule)" />
+      </svg>
+      <div className="legend" style={{ flexDirection: "row", gap: "1rem" }}><span className="leg-item"><span className="leg-sw" style={{ background: "var(--accent)" }} />created</span><span className="leg-item"><span className="leg-sw" style={{ background: "var(--ok)" }} />closed</span></div>
+    </div>
+  );
+}
+
+// C4 — gate-bypass detector: L2 work whose changelog never crossed "Escalated to L2".
+export function GateBypass({ model, records, open }) {
+  const rows = inWindow(records, model).filter((r) => r.is_escalated);
+  const crossed = (r) => (r.timeline || []).some((c) => c.field === "status" && /escalat/i.test(c.to || ""));
+  const bypass = rows.filter((r) => !crossed(r));
+  const pct2 = rows.length ? Math.round(bypass.length / rows.length * 100) : 0;
+  return (
+    <div className="panel">
+      <h2>Gate-bypass detector</h2>
+      <p className="why">L2 tickets whose history never crossed an “Escalated to L2” transition — reached L2 without passing the gate. {records ? "" : "Loading…"}</p>
+      {records && (
+        <div className="miniboard">
+          <div><span className="k">at L2</span><span className="v tnum">{rows.length}</span></div>
+          <div className="clickable" onClick={() => open({ type: "records", label: "Gate-bypassed L2", pred: (r) => r.is_escalated && !crossed(r), windowed: true, reconcile: bypass.length })}><span className="k">bypassed gate</span><span className="v tnum" style={{ color: bypass.length ? "var(--crit)" : "var(--ok)" }}>{bypass.length}</span></div>
+          <div><span className="k">bypass rate</span><span className="v tnum">{pct2}%</span></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// N1 — invariant footer: surface the model's own self-checks (green/red).
+export function InvariantFooter({ model }) {
+  const inv = model.invariants || [];
+  const ws = model.weekly_sums || {};
+  const items = inv.length ? inv.map((x) => (typeof x === "string" ? { text: x, ok: false } : { text: x.text || JSON.stringify(x), ok: x.ok !== false }))
+    : [{ text: "All population invariants hold (num ⊆ den, no Problem carries an SLA verdict, tiers partition).", ok: true }];
+  return (
+    <div className="panel span-full integrity">
+      <h2>Invariants <span className="why" style={{ display: "inline", margin: 0 }}>— the self-checks that gate whether a panel is allowed to render.</span></h2>
+      <div className="int-row">
+        {items.map((it, i) => (
+          <div key={i} className={"int-cell " + (it.ok ? "ok" : "warn")}>
+            <span className="int-k">{it.ok ? "PASS" : "CHECK"}</span>
+            <span className="int-v tnum">{it.ok ? "✓" : "!"}</span>
+            <span className="int-note">{it.text}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

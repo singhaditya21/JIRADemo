@@ -6,7 +6,9 @@ import { KpiStrip, PairingPanel, Analysts, KBGap, Towers, Intake, Ageing,
   ProblemManagement, RequestFulfilment, SlaByType, CustomerSatisfaction,
   SnapshotTrends, BenchmarkLeague, WhatChanged, AnomalyWatch, Recommendations,
   Forecast, CriteriaScorecard, EscalationReasonMatrix, IntakeByTower, AnalystLoad,
-  AskTower, TierSankey } from "./panels.jsx";
+  AskTower, TierSankey, DemandCurve, TriageDwell, EscalationLatency, TimeInTier,
+  ReasonRootCause, SlaByPriority, KBDiscipline, ResolutionCodeMix, RootCausePareto,
+  OpenByPriority, FlowBalance, GateBypass, InvariantFooter } from "./panels.jsx";
 import { Drawer } from "./drill.jsx";
 
 const PROJECTS = ["OPS", "ITSM"];
@@ -67,8 +69,13 @@ function lensPanels(lens, project, model, open, records, history) {
          <ChangeManagement key="cm" {...R} />, <ProblemManagement key="pm" {...R} />,
          <RequestFulfilment key="rf" {...R} />, <CustomerSatisfaction key="csat" {...R} />,
          <SlaByType key="sbt" {...R} />]
-      : [<TierFlow key="tf" {...R} />, <TierSankey key="tsk" {...R} />, <ImpactUrgency key="iu" {...R} />, <MajorIncident key="mi" {...R} />,
-         <EscalationReasonMatrix key="erm" {...R} />, <IntakeByTower key="ibt" {...R} />, <AnalystLoad key="al" {...R} />]),
+      : [<TierFlow key="tf" {...R} />, <TierSankey key="tsk" {...R} />, <TimeInTier key="tit" {...R} />,
+         <EscalationLatency key="elat" {...R} />, <ImpactUrgency key="iu" {...R} />, <MajorIncident key="mi" {...R} />,
+         <EscalationReasonMatrix key="erm" {...R} />, <ReasonRootCause key="rrc" {...R} />, <GateBypass key="gb" {...R} />,
+         <IntakeByTower key="ibt" {...R} />, <DemandCurve key="dc" {...P} />, <TriageDwell key="td" {...R} />,
+         <SlaByPriority key="sbp" {...R} />, <OpenByPriority key="obp" {...R} />, <KBDiscipline key="kbd" {...R} />,
+         <ResolutionCodeMix key="rcm" {...R} />, <RootCausePareto key="rcp" {...R} />, <FlowBalance key="fb2" {...P} />,
+         <AnalystLoad key="al" {...R} />]),
     <PairingPanel key="pair" {...P} />,
     <Analysts key="an" {...P} />,
     <SlaOutcomes key="sla" {...P} />,
@@ -80,6 +87,7 @@ function lensPanels(lens, project, model, open, records, history) {
     <Ageing key="ag" {...P} />,
     <AgeingByStatus key="abs" {...P} />,
     <IntegrityStrip key="int" {...P} />,
+    <InvariantFooter key="inv" {...P} />,
   ];
 }
 

@@ -217,6 +217,68 @@ export function Donut({ slices, w = 190, thickness = 30, center = null, onPick }
   );
 }
 
+// Histogram — bins a numeric array; clickable bars. `values` numbers, `bins` count.
+export function Histogram({ values, bins = 12, w = 520, h = 150, pad = 24, unit = "", fmt = (v) => v, onPick }) {
+  const vals = values.filter((v) => v != null && isFinite(v));
+  if (!vals.length) return <div className="state">no data</div>;
+  const min = Math.min(...vals), max = Math.max(...vals) || 1;
+  const span = (max - min) || 1, bw = span / bins;
+  const counts = new Array(bins).fill(0);
+  for (const v of vals) counts[Math.min(bins - 1, Math.floor((v - min) / bw))]++;
+  const maxC = Math.max(...counts, 1);
+  const plotW = w - pad * 2, plotH = h - pad;
+  const bwPx = plotW / bins;
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} width="100%">
+      {counts.map((c, i) => {
+        const bh = (c / maxC) * (plotH - 8), x = pad + i * bwPx, y = plotH - bh;
+        const lo = min + i * bw, hi = lo + bw;
+        return (
+          <g key={i} onClick={onPick ? () => onPick(lo, hi, c) : undefined} style={onPick ? { cursor: "pointer" } : undefined}>
+            <rect x={x + 1} y={y} width={Math.max(1, bwPx - 2)} height={Math.max(0, bh)} rx="1.5" fill="var(--accent)" opacity="0.8">
+              <title>{fmt(lo)}–{fmt(hi)}{unit}: {c}</title></rect>
+            {c > 0 && <text x={x + bwPx / 2} y={y - 2} fontSize="8" textAnchor="middle" fill="var(--muted)" fontFamily="var(--mono)">{c}</text>}
+          </g>
+        );
+      })}
+      <line x1={pad} x2={w - pad} y1={plotH} y2={plotH} stroke="var(--rule)" />
+      <text x={pad} y={h - 6} fontSize="9" fill="var(--muted)" fontFamily="var(--mono)">{fmt(min)}{unit}</text>
+      <text x={w - pad} y={h - 6} fontSize="9" textAnchor="end" fill="var(--muted)" fontFamily="var(--mono)">{fmt(max)}{unit}</text>
+    </svg>
+  );
+}
+
+// 100%-stacked horizontal bars — one row per category, segments sum to 100%. `rows`:
+// [{label, parts:[{key,value,color}]}]. Used for KB discipline, open-by-priority, skew.
+export function StackedBar({ rows, w = 520, rowH = 24, gap = 6, labW = 130, onPick }) {
+  const h = rows.length * (rowH + gap);
+  const barW = w - labW - 8;
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} width="100%">
+      {rows.map((r, i) => {
+        const total = r.parts.reduce((a, p) => a + p.value, 0) || 1;
+        let x = labW;
+        const y = i * (rowH + gap);
+        return (
+          <g key={i}>
+            <text x={0} y={y + rowH * 0.7} fontSize="11" fill="var(--ink)">{r.label}</text>
+            {r.parts.map((p, j) => {
+              const segW = (p.value / total) * barW, sx = x; x += segW;
+              return segW > 0 ? (
+                <g key={j} onClick={onPick ? () => onPick(r, p) : undefined} style={onPick ? { cursor: "pointer" } : undefined}>
+                  <rect x={sx} y={y} width={Math.max(0.5, segW)} height={rowH} fill={p.color} opacity="0.88">
+                    <title>{r.label} · {p.key}: {p.value} ({Math.round(p.value / total * 100)}%)</title></rect>
+                  {segW > 22 && <text x={sx + segW / 2} y={y + rowH * 0.68} fontSize="9" textAnchor="middle" fill="#fff" fontFamily="var(--mono)">{Math.round(p.value / total * 100)}</text>}
+                </g>
+              ) : null;
+            })}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
 // Two-column Sankey — left nodes flow to right nodes, ribbon width ∝ value. Used for
 // tier→tier transition flow. `left`/`right`: [{id,label,value,color}]; `links`: [{from,to,value}].
 export function Sankey({ left, right, links, w = 560, h = 250, nodeW = 12, gap = 12, pad = 18, onPick }) {
