@@ -368,36 +368,67 @@ def build_fields(w):
     return fields
 
 
-def add_fields_to_screens(w, field_ids):
-    """Put every SFC field on the SFC screens so REST can set it on create/edit.
+def project_screen_ids(j, project_id):
+    """Screen ids attached to the SFC project's issue types, via its screen scheme.
 
-    Matched by project KEY in the screen name (as OPS does). If NO SFC-named screen is
-    found we WARN and skip rather than spraying SFC fields across every project's
-    screens (the old all-screens fallback could land them on OPS/ITSM). A freshly
-    created company-managed project always has key-named screens, so this is a
-    belt-and-braces guard, not the expected path.
+    Robust against the two ways a name-substring match misses the SFC screens:
+    (a) the screens aren't named with the project key, and (b) the global
+    /rest/api/3/screens list paginates past the first 100 on an instance that already
+    carries OPS + ITSM + JSM screens — which is exactly what bit the first build
+    (name-matching worked for OPS only because its screens were within page 1). Walks
+    project -> issue-type screen scheme -> screen schemes -> the create/default/edit/
+    view screen ids, so it targets precisely the screens SFC actually uses.
+    """
+    scheme_ids, screen_ids = set(), set()
+    resp = j.try_get("/rest/api/3/issuetypescreenscheme/project?projectId=%s"
+                     % project_id, {}) or {}
+    itss_ids = [str((v.get("issueTypeScreenScheme") or {}).get("id"))
+                for v in resp.get("values", [])
+                if (v.get("issueTypeScreenScheme") or {}).get("id") is not None]
+    for itss_id in itss_ids:
+        m = j.try_get("/rest/api/3/issuetypescreenscheme/mapping"
+                      "?issueTypeScreenSchemeId=%s&maxResults=100" % itss_id, {}) or {}
+        for row in m.get("values", []):
+            if row.get("screenSchemeId") is not None:
+                scheme_ids.add(str(row["screenSchemeId"]))
+    for ss_id in scheme_ids:
+        sc = j.try_get("/rest/api/3/screenscheme?id=%s&maxResults=100" % ss_id, {}) or {}
+        for row in sc.get("values", []):
+            for key in ("default", "create", "edit", "view"):
+                sid = (row.get("screens") or {}).get(key)
+                if sid is not None:
+                    screen_ids.add(str(sid))
+    return screen_ids
+
+
+def add_fields_to_screens(w, project_id, field_ids):
+    """Put every SFC field on the SFC project's own create/edit screens.
+
+    Resolves the screens through the project's screen scheme (project_screen_ids). If
+    that resolves nothing we WARN and skip rather than spraying SFC fields across every
+    project's screens (an all-screens fallback could land them on OPS/ITSM).
     """
     j = w.j
     added = 0
-    screens = j.get("/rest/api/3/screens?maxResults=100").get("values", [])
-    targets = [s for s in screens if PROJECT_KEY.lower() in (s.get("name") or "").lower()]
-    if not targets:
-        log("  ! no SFC-specific screens found — skipping (refusing to touch other "
-            "projects' screens). Add the SFC fields to the SFC create/edit screens in "
-            "the UI, then re-run the seeder.")
+    screen_ids = project_screen_ids(j, project_id)
+    if not screen_ids:
+        log("  ! could not resolve the SFC project's screens via its screen scheme — "
+            "skipping (refusing to touch other projects' screens). If this persists, add "
+            "the SFC fields to the SFC screens in the UI, then re-run the seeder.")
         return 0
-    for sc in targets:
-        tabs = j.try_get("/rest/api/3/screens/%s/tabs" % sc["id"], [])
+    log("  SFC screens: %s" % ", ".join(sorted(screen_ids)))
+    for sid in screen_ids:
+        tabs = j.try_get("/rest/api/3/screens/%s/tabs" % sid, [])
         if not tabs:
             continue
         tab = tabs[0]["id"]
         present = {f["id"] for f in j.try_get(
-            "/rest/api/3/screens/%s/tabs/%s/fields" % (sc["id"], tab), []) or []}
+            "/rest/api/3/screens/%s/tabs/%s/fields" % (sid, tab), []) or []}
         for fid in field_ids:
             if fid in present:
                 continue
             try:
-                w.post("/rest/api/3/screens/%s/tabs/%s/fields" % (sc["id"], tab),
+                w.post("/rest/api/3/screens/%s/tabs/%s/fields" % (sid, tab),
                        {"fieldId": fid})
                 added += 1
             except RuntimeError:
@@ -486,7 +517,14 @@ def attempt_workflow(w, status_ids, field_ids):
         log("  workflow created: %s" % [x.get("name") for x in res.get("workflows", [])])
         return True
     except RuntimeError as e:
-        log("  workflow creation FAILED\n    %s" % str(e)[:400])
+        msg = str(e)
+        # Idempotency: a re-run hits "already exists". The workflow is there from the
+        # first run (and main() still binds/verifies the scheme), so this is success,
+        # not failure — don't fall back to the UI table for a workflow we created.
+        if "already exists" in msg.lower():
+            log("  = workflow %r already exists (reusing)" % WORKFLOW_NAME)
+            return True
+        log("  workflow creation FAILED\n    %s" % msg[:400])
         return False
 
 
@@ -598,7 +636,7 @@ def main(argv=None):
     log("  %d fields total" % len(fields))
 
     log("== screens ==")
-    n = add_fields_to_screens(w, list(fields.values()))
+    n = add_fields_to_screens(w, project_id, list(fields.values()))
     log("  %d field/screen associations added" % n)
 
     log("== statuses ==")
