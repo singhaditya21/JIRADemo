@@ -15,7 +15,9 @@
 
 ## 0. Canonical conventions (authoritative — supersedes the drafted sections)
 
-This spec's Sections 1–7 were drafted in parallel and diverged on names, ids, and enums. **This section is the single source of truth**; where a later section disagrees, this wins. Values marked *(proposed)* are sensible defaults pending your confirmation; values marked **(YOUR DECISION)** are genuine forks the spec cannot close for you.
+This spec's Sections 1–7 were drafted in parallel and diverged on names, ids, and enums. **This section is the single source of truth**; where a later section disagrees, this wins.
+
+> **Decisions — RESOLVED 2026-07-22.** All five open decisions are now answered (below), so nothing here is pending: per-org carrier = **Model A (Org Deploy sub-tasks)**; CI/CD deploy writeback = **exists now → deploy state is REAL**; config health = **a real probe writes health + drift → health is REAL**; naming + enums = **the §0 proposals accepted**. Net effect: the deploy-status and config-health half of the lens is **REAL from the start**, not modelled — so the P2 boards ship real, and the P2.5 "code hinge" is already satisfied. The per-record **`Source` badge (CI / Manual / Seeded)** stays, so the integrity strip can still show which cells are CI-written vs hand-entered vs seeded.
 
 **Naming (proposed).**
 - Project / lens: name **"Delivery — SF Config"**, key **`SFC`**, lens id **`SFC`** (sits beside `OPS` and `ITSM`).
@@ -29,12 +31,11 @@ This spec's Sections 1–7 were drafted in parallel and diverged on names, ids, 
 - **Config Health** (per org): `Healthy · Degraded · Failing · Unknown` — **default `Unknown`**; a health verdict with no fresh `Health Checked At` renders **stale/`Unknown`, never green**.
 - **Source** (on both Deploy State and Config Health): `CI writeback · Manual · Seeded` — this field is what lets the integrity strip say *"N of M orgs have real CI-written state; the rest are modelled."*
 
-**The pivotal fork — per-org carrier (YOUR DECISION).** An SCR targets N orgs, each with its own deploy state + health; a flat Jira field can't hold "Deployed in UAT, Failed in Prod." Pick one:
-- **Model A — `Org Deploy` sub-tasks** (one per target org). Per-org counts reconcile *natively* (a "failed in Prod" drill is a sub-task query, num/den exact). Recommended **if** something (CI) can create them.
-- **Model B — a `Deploy Matrix` JSON field** on the parent, parsed by the bake into per-org rows. Lighter, but reconciles only as well as the parser and is only as real as the CI writeback.
-- Default if undecided: **Model B** for a fixed, small, enumerable org set (Dev/QA/UAT/Staging/Prod); **Model A** if orgs are unbounded/per-customer.
+**Per-org carrier — RESOLVED: Model A (`Org Deploy` sub-tasks).** An SCR targets N orgs, each with its own deploy state + health; a flat Jira field can't hold "Deployed in UAT, Failed in Prod." **Chosen: one `Org Deploy` sub-task per target org**, each carrying its own `Deploy State`, `Config Health`, `Health Checked At`, `Source`, and evidence links; the parent SCR carries the roll-up. Per-org counts then reconcile **natively** — "orgs where deploy failed" is literally a sub-task query, num/den exact, the tower's non-negotiable. The bake reads the sub-tasks as child records; the roll-up (e.g. SCR is "Deployed" only when *all* target orgs are Deployed) is computed in `analytics.py`. (Model B — a `Deploy Matrix` JSON field — is dropped.)
 
-**The honesty hinge — the CI writeback (YOUR DECISION, §7 Q3).** Because the data is Jira-only, **per-org deploy state and config health are only REAL if a CI/CD job writes them back to Jira** (with `Source = CI writeback`). If yes → the deploy/health half is real. If no → it ships permanently as an *openly-modelled plan-of-record board* that never claims to have read a Salesforce org. Until a writeback exists, every deploy/health cell is **structurally badged/greyed as modelled** — the boards physically cannot present seeded data as a live org reading.
+**Config-health source — RESOLVED: a real health/drift probe writes back.** A scheduled probe (metadata-diff / SF CLI scan / monitoring integration) writes real `Config Health` **and drift** onto each `Org Deploy` sub-task with `Health Checked At` + `Source = CI writeback`. So health and drift are **REAL**, not a proxy — with one honesty guard kept: a verdict whose `Health Checked At` is stale renders **`Unknown`/greyed**, never green, so a lapsed probe can't show false health.
+
+**The CI writeback — RESOLVED: it exists now → deploy/health is REAL.** A CI/CD job (SF CLI + GitHub Action) writes `Deploy State`, `Config Health`, drift, and the `*_At` timestamps back to Jira per run with `Source = CI writeback`. So the deploy-status and config-health boards are **REAL from t0**, and the earlier "single code hinge (P2.5)" is already satisfied. The `Source` badge (CI / Manual / Seeded) is still rendered per cell, so the integrity strip reports the real-vs-manual share honestly and any manually-entered or seeded cell is visibly distinguished.
 
 ---
 
