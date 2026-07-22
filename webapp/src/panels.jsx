@@ -1122,7 +1122,7 @@ export function DeliveryPreviewBanner({ model }) {
   return (
     <div className="panel span-full headline" style={{ borderLeftColor: "var(--ok)" }}>
       <span className="headline-tag" style={{ color: "var(--ok)", borderColor: "var(--ok)" }}>Live</span>
-      <span className="headline-text"><strong>Live SFC Jira data.</strong> Stage, funnel, squad, CAB and the agent-action ledger are real. Per-org <strong>deploy state &amp; config health</strong> read <strong>Source = Seeded</strong> until a real CI/CD writeback + drift probe run — the health board splits CI-written vs seeded, so it&apos;s never hidden.</span>
+      <span className="headline-text"><strong>Live SFC Jira data.</strong> Stage, funnel, squad, CAB and the agent-action ledger are real. Per-org <strong>deploy state &amp; config health</strong> are written back to Jira by the CI/CD pipeline (<strong>Source = CI writeback</strong>, stamped each run); the Salesforce drift probe is simulated until SF credentials are set — the health board shows Source per cell, so it&apos;s never hidden.</span>
     </div>
   );
 }

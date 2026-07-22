@@ -304,10 +304,11 @@ def _model(records, days, now, generated_at):
                                           now.strftime("%d %b %Y")),
         "volume": len(in_window), "scoreboard": _scoreboard(in_window), "warnings": [],
         "note": ("Live SFC Jira data. The stage/funnel, squad, CAB and agent-action "
-                 "ledger are real; per-org deploy state & config health come from the "
-                 "Org Deploy sub-tasks and read Source = Seeded until a real CI/CD "
-                 "writeback + drift probe run (the health board splits CI-written vs "
-                 "seeded, so this is visible)."),
+                 "ledger are real; per-org deploy state & config health are written back "
+                 "to the Org Deploy sub-tasks by the CI/CD pipeline (app/sfc_writeback), "
+                 "Source = CI writeback, stamped each run. The Salesforce drift probe is "
+                 "simulated until SF credentials are configured; the health board shows "
+                 "Source per cell, so this is visible."),
     }
 
 

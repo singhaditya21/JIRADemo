@@ -1,0 +1,60 @@
+name: SF Config — CI/CD deploy writeback + drift probe
+
+# The DeliveryIQ CI/CD writeback (app/sfc_writeback.py): probes each target org's deploy
+# status + config health and WRITES it back onto the SFC "Org Deploy" sub-tasks in Jira
+# (Deploy State, Config Health, a fresh Health Checked At, Deploy Source = "CI writeback").
+# This is what flips those cells from a fixture placeholder to pipeline-owned data with a
+# real, recent timestamp — the lens's health board already splits CI-written vs seeded.
+#
+# It MUTATES Jira, so it only runs when you trigger it by hand and DEFAULTS TO A DRY RUN.
+# Uncheck dry_run to actually write. The token stays a CI secret.
+#
+# PROBE: with no SF_* secrets set, the probe is a deterministic SIMULATION (the writeback
+# is real; the health values are modelled — the run log and the lens say so). To make it
+# fully live, add repo secrets SF_INSTANCE_URL / SF_CLIENT_ID / SF_CLIENT_SECRET and
+# implement probe_org() against the Salesforce Tooling/Metadata API — no other change.
+#
+# Not scheduled by default: a job that silently mutates Jira on a timer is a standing
+# side effect. If you want it periodic once the real probe is wired, add a `schedule:`
+# cron here (e.g. every 30 min, matching the Pages bake).
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Rehearse only — write nothing (uncheck to actually write to Jira)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  writeback:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Probe + write deploy state / config health back to Jira
+        # SECURITY: inputs pass through env and are read as shell vars, never
+        # ${{ }}-interpolated into the token-bearing step. The dry gate is a bash `case`
+        # on the string (not a GH ${{ == }} ternary). SF_* are optional — absent means
+        # the simulated probe; present means probe_org() calls the real Salesforce API.
+        env:
+          JIRA_SITE: ${{ secrets.JIRA_SITE }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+          SF_INSTANCE_URL: ${{ secrets.SF_INSTANCE_URL }}
+          SF_CLIENT_ID: ${{ secrets.SF_CLIENT_ID }}
+          SF_CLIENT_SECRET: ${{ secrets.SF_CLIENT_SECRET }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          FLAG="--dry-run"
+          case "$DRY_RUN" in
+            false|False|FALSE|no|No|0|off) FLAG="" ;;
+          esac
+          echo "dry_run='$DRY_RUN'  gate=${FLAG:-APPLY (writing to Jira)}"
+          python3 -m app.sfc_writeback $FLAG
