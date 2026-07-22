@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Sparkline, Bars, AnalystBand, Pairing, Heatmap, BoxPlot, DotPlot, Donut } from "./charts.jsx";
+import { Sparkline, Bars, AnalystBand, Pairing, Heatmap, BoxPlot, DotPlot, Donut, Sankey } from "./charts.jsx";
 
 const f1 = (v) => (v == null ? "—" : (Math.round(v * 10) / 10).toFixed(1));
 const pct = (v) => (v == null ? "—" : f1(v) + "%");
@@ -628,6 +628,94 @@ export function CriteriaScorecard({ model }) {
           <span className="sc-flag">{c.ok ? "✓" : "✗"}</span><span className="sc-k">{c.lab}</span><span className="sc-v tnum">{c.v}</span>
         </div>
       ))}</div>
+    </div>
+  );
+}
+
+// Client-side natural-language-ish query parser (roadmap 6.7). NOT an LLM — a static page
+// has no model to run — but it maps a plain-language phrase to a live record predicate over
+// the fields the tower already holds. Honest and useful within that constraint.
+function parseQuery(q, records) {
+  const t = " " + (q || "").toLowerCase() + " ";
+  const preds = [], desc = [];
+  const TYPES = { incident: "Incident", request: "Service Request", change: "Change", problem: "Problem" };
+  for (const [k, v] of Object.entries(TYPES)) if (t.includes(k)) { preds.push((r) => r.issue_type === v || (v === "Service Request" && /request/i.test(r.issue_type))); desc.push(`type=${v}`); }
+  const pm = t.match(/\bp([1-4])\b/);
+  if (pm) { preds.push((r) => (r.priority || "").startsWith("P" + pm[1])); desc.push(`P${pm[1]}`); }
+  else for (const [w, p] of [["critical", "P1"], ["high", "P2"], ["medium", "P3"], ["low", "P4"]]) if (t.includes(" " + w)) { preds.push((r) => (r.priority || "").startsWith(p)); desc.push(p); }
+  if (/breach/.test(t)) { preds.push((r) => r.resolution_sla === "Breached" || r.response_sla === "Breached"); desc.push("SLA breached"); }
+  if (/\bmet\b/.test(t)) { preds.push((r) => r.resolution_sla === "Met"); desc.push("SLA met"); }
+  if (/\bopen\b|still open/.test(t)) { preds.push((r) => r.is_open); desc.push("open"); }
+  if (/\bclosed\b|\bresolved\b/.test(t)) { preds.push((r) => !r.is_open); desc.push("closed"); }
+  if (/escalat/.test(t)) { preds.push((r) => r.is_escalated); desc.push("escalated"); }
+  if (/reopen/.test(t)) { preds.push((r) => r.is_reopened); desc.push("reopened"); }
+  if (/no kb|kb gap|without.*(kb|article)|no article/.test(t)) { preds.push((r) => r.kb_gap); desc.push("KB gap"); }
+  const age = t.match(/(?:aged|older|over|>|gt)\s*(\d+)\s*d/);
+  if (age) { const n = +age[1]; preds.push((r) => r.age_days >= n && r.is_open); desc.push(`aged >${n}d`); }
+  else if (/\baged\b|\bstale\b/.test(t)) { preds.push((r) => r.age_days >= 14 && r.is_open); desc.push("aged >14d"); }
+  for (const tw of [...new Set((records || []).map((r) => r.tower).filter(Boolean))]) {
+    if (tw.toLowerCase().split(/[ &]+/).some((k) => k.length > 3 && t.includes(k))) { preds.push((r) => r.tower === tw); desc.push(tw); break; }
+  }
+  for (const ch of ["portal", "email", "chat", "monitoring"]) if (t.includes(ch)) { preds.push((r) => (r.intake || "").toLowerCase() === ch); desc.push(ch); }
+  for (const rc of ["configuration", "capacity", "software", "hardware", "human error", "third-party", "vendor", "access", "permission"]) if (t.includes(rc)) { const key = rc.split(" ")[0]; preds.push((r) => (r.root_cause || "").toLowerCase().includes(key)); desc.push(`cause~${rc}`); }
+  return { preds, desc };
+}
+
+export function AskTower({ model, records, open }) {
+  const [q, setQ] = useState("");
+  const rows = inWindow(records, model);
+  const examples = ["breached P1 incidents", "escalations with no KB", "aged over 30 days", "portal requests", "reopened in Database"];
+  const parsed = q.trim() ? parseQuery(q, records || []) : { preds: [], desc: [] };
+  const count = parsed.preds.length ? rows.filter((r) => parsed.preds.every((p) => p(r))).length : null;
+  const run = (query) => {
+    const { preds, desc } = parseQuery(query, records || []);
+    if (!preds.length) return;
+    const pred = (r) => preds.every((p) => p(r));
+    open({ type: "records", label: `“${query.trim()}” → ${desc.join(" ∧ ")}`, pred, reconcile: rows.filter(pred).length });
+  };
+  return (
+    <div className="panel span-full">
+      <h2>Ask the tower</h2>
+      <p className="why">Type a question in plain words — it maps to a live filter over the records (pattern-based field matching; a static page has no model, so this is <em>not</em> an LLM). <span className="hint">Enter to drill.</span></p>
+      <div className="ask-row">
+        <input className="ask-input" value={q} placeholder="e.g. breached P1 incidents in Database with no KB" disabled={!records}
+          onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && run(q)} />
+        <button className="ask-go" onClick={() => run(q)} disabled={!parsed.preds.length}>Drill{count != null ? ` (${count})` : ""}</button>
+      </div>
+      {q.trim() && (parsed.desc.length
+        ? <p className="ask-understood">Understood: <strong>{parsed.desc.join(" ∧ ")}</strong> — {count} record{count === 1 ? "" : "s"} in window.</p>
+        : <p className="ask-understood muted">No fields matched — try a type, a priority (P1–P4), a state (breached/open/escalated/aged/reopened), a tower, a channel, or a root cause.</p>)}
+      <div className="ask-examples">{examples.map((ex) => <button key={ex} className="chip" onClick={() => { setQ(ex); run(ex); }}>{ex}</button>)}</div>
+    </div>
+  );
+}
+
+// Tier-flow Sankey — transition volume between tier buckets, from the changelog (roadmap D1).
+export function TierSankey({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const NAME = { L1: "L1", L2: "L2", wait: "Waiting", done: "Resolved" };
+  const COL = { L1: "var(--accent)", L2: "var(--warn)", wait: "var(--muted)", done: "var(--ok)" };
+  const counts = {};
+  for (const r of rows) {
+    const st = (r.timeline || []).filter((c) => c.field === "status");
+    for (const c of st) { const f = tof(c.from), tt = tof(c.to); if (f && tt && f !== tt) { const k = f + "|" + tt; counts[k] = (counts[k] || 0) + 1; } }
+  }
+  const links = Object.entries(counts).map(([k, value]) => ({ from: k.split("|")[0], to: k.split("|")[1], value }));
+  const leftIds = [...new Set(links.map((l) => l.from))], rightIds = [...new Set(links.map((l) => l.to))];
+  const outVal = (id) => links.filter((l) => l.from === id).reduce((a, l) => a + l.value, 0);
+  const inVal = (id) => links.filter((l) => l.to === id).reduce((a, l) => a + l.value, 0);
+  const order = ["L1", "L2", "wait", "done"];
+  const left = order.filter((id) => leftIds.includes(id)).map((id) => ({ id, label: NAME[id], value: outVal(id), color: COL[id] }));
+  const right = order.filter((id) => rightIds.includes(id)).map((id) => ({ id: "r_" + id, label: NAME[id], value: inVal(id), color: COL[id] }));
+  const rlinks = links.map((l) => ({ from: l.from, to: "r_" + l.to, value: l.value }));
+  const total = links.reduce((a, l) => a + l.value, 0);
+  return (
+    <div className="panel span-2">
+      <h2>Tier-flow Sankey</h2>
+      <p className="why">Where work moves between tiers, from the changelog — ribbon width is the number of transitions ({total} total). The L2→L1 return flow is the ping-pong waste. {records ? "" : "Loading…"} <span className="hint">Click a ribbon.</span></p>
+      {records && total > 0 && <Sankey left={left} right={right} links={rlinks}
+        onPick={(l) => { const f = l.from, t2 = l.to.replace("r_", ""); open({ type: "records", label: `Transitioned ${NAME[f]} → ${NAME[t2]}`, windowed: false, pred: (r) => (r.timeline || []).some((c) => c.field === "status" && tof(c.from) === f && tof(c.to) === t2), reconcile: null }); }} />}
+      {records && total === 0 && <p className="hint">No tier transitions in this window.</p>}
     </div>
   );
 }

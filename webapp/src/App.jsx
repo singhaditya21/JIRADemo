@@ -5,7 +5,8 @@ import { KpiStrip, PairingPanel, Analysts, KBGap, Towers, Intake, Ageing,
   MajorIncident, TierFlow, PracticeMix, IncidentManagement, ChangeManagement,
   ProblemManagement, RequestFulfilment, SlaByType, CustomerSatisfaction,
   SnapshotTrends, BenchmarkLeague, WhatChanged, AnomalyWatch, Recommendations,
-  Forecast, CriteriaScorecard, EscalationReasonMatrix, IntakeByTower, AnalystLoad } from "./panels.jsx";
+  Forecast, CriteriaScorecard, EscalationReasonMatrix, IntakeByTower, AnalystLoad,
+  AskTower, TierSankey } from "./panels.jsx";
 import { Drawer } from "./drill.jsx";
 
 const PROJECTS = ["OPS", "ITSM"];
@@ -42,7 +43,7 @@ function lensPanels(lens, project, model, open, records, history) {
     <QueueByStatus key="q" {...P} tier="L2" />,
     <SlaOutcomes key="sla" {...P} lens="L2" />,
     ...(itsm ? [<ProblemManagement key="pm" {...R} />, <ChangeManagement key="cm" {...R} />]
-            : [<TierFlow key="tf" {...R} />]),
+            : [<TierFlow key="tf" {...R} />, <TierSankey key="tsk" {...R} />]),
     <KBGap key="kb" {...P} lens="L2" />,
     <EscalationReasons key="er" {...P} />,
     ...(itsm ? [] : [<EscalationReasonMatrix key="erm" {...R} />]),
@@ -52,6 +53,7 @@ function lensPanels(lens, project, model, open, records, history) {
     <BacklogFlow key="bf" {...P} />,
   ];
   return [
+    <AskTower key="ask" {...R} />,
     <InsightsFeed key="ins" {...P} />,
     <Recommendations key="rec" {...P} />,
     <WhatChanged key="chg" history={history} />,
@@ -65,7 +67,7 @@ function lensPanels(lens, project, model, open, records, history) {
          <ChangeManagement key="cm" {...R} />, <ProblemManagement key="pm" {...R} />,
          <RequestFulfilment key="rf" {...R} />, <CustomerSatisfaction key="csat" {...R} />,
          <SlaByType key="sbt" {...R} />]
-      : [<TierFlow key="tf" {...R} />, <ImpactUrgency key="iu" {...R} />, <MajorIncident key="mi" {...R} />,
+      : [<TierFlow key="tf" {...R} />, <TierSankey key="tsk" {...R} />, <ImpactUrgency key="iu" {...R} />, <MajorIncident key="mi" {...R} />,
          <EscalationReasonMatrix key="erm" {...R} />, <IntakeByTower key="ibt" {...R} />, <AnalystLoad key="al" {...R} />]),
     <PairingPanel key="pair" {...P} />,
     <Analysts key="an" {...P} />,

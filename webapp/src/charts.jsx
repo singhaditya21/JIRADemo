@@ -217,6 +217,43 @@ export function Donut({ slices, w = 190, thickness = 30, center = null, onPick }
   );
 }
 
+// Two-column Sankey — left nodes flow to right nodes, ribbon width ∝ value. Used for
+// tier→tier transition flow. `left`/`right`: [{id,label,value,color}]; `links`: [{from,to,value}].
+export function Sankey({ left, right, links, w = 560, h = 250, nodeW = 12, gap = 12, pad = 18, onPick }) {
+  const leftTot = left.reduce((a, n) => a + n.value, 0) || 1;
+  const rightTot = right.reduce((a, n) => a + n.value, 0) || 1;
+  const availL = h - pad * 2 - gap * Math.max(0, left.length - 1);
+  const availR = h - pad * 2 - gap * Math.max(0, right.length - 1);
+  const scaleL = availL / leftTot, scaleR = availR / rightTot;
+  const L = {}, R = {};
+  let y = pad; for (const n of left) { const hh = Math.max(2, n.value * scaleL); L[n.id] = { ...n, x: pad, y, h: hh, off: 0 }; y += hh + gap; }
+  y = pad; for (const n of right) { const hh = Math.max(2, n.value * scaleR); R[n.id] = { ...n, x: w - pad - nodeW, y, h: hh, off: 0 }; y += hh + gap; }
+  const ribbons = links.filter((l) => L[l.from] && R[l.to] && l.value > 0).map((l, i) => {
+    const ln = L[l.from], rn = R[l.to], thL = l.value * scaleL, thR = l.value * scaleR;
+    const y0 = ln.y + ln.off, y1 = y0 + thL; ln.off += thL;
+    const y2 = rn.y + rn.off, y3 = y2 + thR; rn.off += thR;
+    const x0 = ln.x + nodeW, x1 = rn.x, mx = (x0 + x1) / 2;
+    const d = `M${x0},${y0} C${mx},${y0} ${mx},${y2} ${x1},${y2} L${x1},${y3} C${mx},${y3} ${mx},${y1} ${x0},${y1} Z`;
+    return { d, l, color: ln.color };
+  });
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} width="100%">
+      {ribbons.map((rb, i) => (
+        <path key={i} d={rb.d} fill={rb.color} opacity="0.28"
+          onClick={onPick ? () => onPick(rb.l) : undefined} style={onPick ? { cursor: "pointer" } : undefined}>
+          <title>{L[rb.l.from].label} → {R[rb.l.to].label}: {rb.l.value}</title></path>
+      ))}
+      {[...Object.values(L), ...Object.values(R)].map((n, i) => (
+        <g key={i}>
+          <rect x={n.x} y={n.y} width={nodeW} height={n.h} rx="2" fill={n.color} />
+          <text x={n.x < w / 2 ? n.x + nodeW + 4 : n.x - 4} y={n.y + n.h / 2 + 3} fontSize="10"
+            textAnchor={n.x < w / 2 ? "start" : "end"} fill="var(--ink)">{n.label} <tspan fill="var(--muted)" fontFamily="var(--mono)">{n.value}</tspan></text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
 // FTR vs reopen scatter over weeks - the pairing that makes gaming visible.
 export function Pairing({ weeks, r, w = 480, h = 260, pad = 34, onPick }) {
   // The model (app/analytics.ftr_vs_reopen) keys these ftr_pct / reopen_pct.
