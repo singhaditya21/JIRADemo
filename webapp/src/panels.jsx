@@ -373,11 +373,12 @@ function buildInsights(model) {
     const m = sb[k]; if (!m || m.value == null || !m.verdict) continue;
     const arrow = m.direction === "ge" ? "≥" : "≤";
     if (m.verdict === "GAP") ins.push({ sev: "warn", drill: { type: "metric", key: k, lab },
+      mat: Math.abs(m.value - m.target) * ((m.den || 100) / 100),   // materiality = gap × denominator
       text: `${lab} is ${pct(m.value)} against a ${arrow}${m.target}% target — ${f1(Math.abs(m.value - m.target))} pts short.` });
     else if (m.verdict === "PASS") ins.push({ sev: "ok", drill: { type: "metric", key: k, lab },
       text: `${lab} is ${pct(m.value)}, clearing its ${arrow}${m.target}% target.` });
   }
-  if (kb.pct != null) ins.push({ sev: "warn", drill: { type: "kbgap", gap: kb.gap, escalated: kb.escalated, pct: kb.pct },
+  if (kb.pct != null) ins.push({ sev: "warn", drill: { type: "kbgap", gap: kb.gap, escalated: kb.escalated, pct: kb.pct }, mat: kb.gap * 1.5,
     text: `${Math.round(kb.pct)}% of escalations (${kb.gap}/${kb.escalated}) found no KB article — the single largest lever to lift L1 resolution.` });
   const bl = (model.backlog || [])[(model.backlog || []).length - 1];
   if (bl && bl.open && bl.aged / bl.open >= 0.5) ins.push({ sev: "warn",
@@ -397,6 +398,9 @@ function buildInsights(model) {
     if (Math.abs(d) >= 3) ins.push({ sev: d > 0 ? "warn" : "ok",
       text: `Escalation rate ${d > 0 ? "rose" : "fell"} ${f1(Math.abs(d))} pts in the latest complete week (${f1(b.escalation_pct)}% → ${f1(a.escalation_pct)}%).` });
   }
+  // Materiality ranking: severity first, then gap×denominator — the biggest, most-actionable first.
+  const SEV = { bad: 3, warn: 2, info: 1, ok: 0 };
+  ins.sort((a, b) => (SEV[b.sev] - SEV[a.sev]) || ((b.mat || 0) - (a.mat || 0)));
   return ins;
 }
 
@@ -548,23 +552,27 @@ export function Recommendations({ model, open }) {
   const recs = [];
   if (kb.pct != null && kb.pct >= 30) {
     const worst = [...towers].sort((a, b) => (b.escalation_pct ?? 0) - (a.escalation_pct ?? 0))[0];
-    recs.push({ text: `Close the KB gap: ${kb.gap}/${kb.escalated} escalations found no article${worst ? `. Start with ${worst.tower} — highest escalation at ${pct(worst.escalation_pct)}` : ""}.`, drill: { type: "kbgap", gap: kb.gap, escalated: kb.escalated, pct: kb.pct } });
+    const lo = Math.round(kb.gap * 0.25 / (sb.ftr_pct?.den || 347) * 100), hi = Math.round(kb.gap * 0.5 / (sb.ftr_pct?.den || 347) * 100);
+    recs.push({ text: `Close the KB gap: ${kb.gap}/${kb.escalated} escalations found no article${worst ? `. Start with ${worst.tower} — highest escalation at ${pct(worst.escalation_pct)}` : ""}.`, impact: `est. +${lo}–${hi} pts FTR (if a quarter-to-half of the gaps get a reusable article)`, drill: { type: "kbgap", gap: kb.gap, escalated: kb.escalated, pct: kb.pct } });
   }
   const slaVals = towers.map((t) => t.sla_pct).filter((v) => v != null);
   if (slaVals.length) {
     const best = Math.max(...slaVals); const worst = [...towers].sort((a, b) => (a.sla_pct ?? 100) - (b.sla_pct ?? 100))[0];
-    if (worst && best - worst.sla_pct >= 5) recs.push({ text: `Lift SLA in ${worst.tower} (${pct(worst.sla_pct)}) toward the best tower (${pct(best)}) — a ${f1(best - worst.sla_pct)}-pt gap over ${worst.volume} tickets.`, drill: { type: "tower", row: worst } });
+    if (worst && best - worst.sla_pct >= 5) recs.push({ text: `Lift SLA in ${worst.tower} (${pct(worst.sla_pct)}) toward the best tower (${pct(best)}) — a ${f1(best - worst.sla_pct)}-pt gap over ${worst.volume} tickets.`, impact: `est. +${f1((best - worst.sla_pct) * worst.volume / 100)} tickets/window brought back inside SLA at parity`, drill: { type: "tower", row: worst } });
   }
   const bl = (model.backlog || []).slice(-1)[0];
-  if (bl && bl.aged) recs.push({ text: `Clear the aged tail: ${bl.aged} tickets are >14 days old — the SLA breaches already baked in.` });
+  if (bl && bl.aged) recs.push({ text: `Clear the aged tail: ${bl.aged} tickets are >14 days old — the SLA breaches already baked in.`, impact: `up to ${bl.aged} avoidable breaches` });
   const e = sb.escalation_pct;
-  if (e && e.verdict === "GAP") recs.push({ text: `Escalation is ${pct(e.value)} vs ≤${e.target}% — every point deflected at L1 is capacity returned. FTR and KB are the levers.`, drill: { type: "metric", key: "escalation_pct", lab: "Escalation rate" } });
+  if (e && e.verdict === "GAP") recs.push({ text: `Escalation is ${pct(e.value)} vs ≤${e.target}% — every point deflected at L1 is capacity returned. FTR and KB are the levers.`, impact: `each pt ≈ ${Math.round((e.den || 418) / 100)} tickets of L2 load`, drill: { type: "metric", key: "escalation_pct", lab: "Escalation rate" } });
   return (
     <div className="panel">
       <h2>Recommended next actions</h2>
       <p className="why">Prescriptive and worst-first — each derived from the figures the panels show, aimed at the cheapest point of improvement. <span className="hint">Click to drill.</span></p>
       <ol className="recs">{recs.map((r, i) => (
-        <li key={i} className={r.drill ? "clickable" : ""} onClick={r.drill ? () => open(r.drill) : undefined}><span className="rec-n">{i + 1}</span><span>{r.text}</span></li>
+        <li key={i} className={r.drill ? "clickable" : ""} onClick={r.drill ? () => open(r.drill) : undefined}>
+          <span className="rec-n">{i + 1}</span>
+          <span>{r.text}{r.impact && <span className="rec-impact"> — {r.impact}</span>}</span>
+        </li>
       ))}</ol>
     </div>
   );

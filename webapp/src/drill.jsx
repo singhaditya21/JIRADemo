@@ -354,12 +354,16 @@ function RecordList({ rows, total, spec, loading, onPick, xf, onRemoveFilter }) 
   const [sort, setSort] = useState(null);   // { k, dir }
   const [hidden, setHidden] = useState(new Set());   // column keys toggled off
   const [pickOpen, setPickOpen] = useState(false);
+  const [filters, setFilters] = useState({});        // per-column contains-filters
+  const [showFilters, setShowFilters] = useState(false);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewH, setViewH] = useState(560);
   const scrollRef = useRef(null);
   const cols = COLUMNS.filter((c) => !hidden.has(c.k));
   const hiCount = spec.hi ? rows.filter(spec.hi).length : null;
+  const activeFilters = Object.entries(filters).filter(([, v]) => v);
   let shown = numOnly && spec.hi ? rows.filter(spec.hi) : rows;
+  if (activeFilters.length) shown = shown.filter((r) => activeFilters.every(([k, v]) => String(r[k] ?? "").toLowerCase().includes(v.toLowerCase())));
   if (sort) {
     const { k, dir } = sort;
     shown = [...shown].sort((a, b) => {
@@ -368,7 +372,7 @@ function RecordList({ rows, total, spec, loading, onPick, xf, onRemoveFilter }) 
       return (x > y ? 1 : x < y ? -1 : 0) * dir;
     });
   }
-  const narrowed = numOnly || (xf && xf.length > 0);
+  const narrowed = numOnly || (xf && xf.length > 0) || activeFilters.length > 0;
   const cellVal = (c, r) => (c.link ? r.key : c.fmt ? c.fmt(r[c.k]) : r[c.k]);
   const csv = () => download(`records-${shown.length}.csv`,
     cols.map((c) => c.h).join(",") + "\n" + shown.map((r) => cols.map((c) => csvCell(cellVal(c, r))).join(",")).join("\n"),
@@ -420,6 +424,7 @@ function RecordList({ rows, total, spec, loading, onPick, xf, onRemoveFilter }) 
               </div>
             )}
           </span>
+          <button className={"rl-toggle" + (showFilters ? " on" : "")} onClick={() => setShowFilters((v) => !v)} title="Per-column filters">filter</button>
           <button className="rl-toggle" onClick={copyKeys} title="Copy the issue keys">copy keys</button>
           <button className="rl-toggle" onClick={csv} title="Download the current view as CSV">CSV ⬇</button>
         </span>
@@ -432,11 +437,17 @@ function RecordList({ rows, total, spec, loading, onPick, xf, onRemoveFilter }) 
       {loading ? <div className="state">loading records …</div> : (
         <div className="rl-scroll" ref={scrollRef}>
           <table className="rl-table">
-            <thead><tr>{cols.map((c) => (
-              <th key={c.k} className={(c.num ? "num " : "") + "sortable"} onClick={() => sortBy(c.k)}>
-                {c.h}{sort && sort.k === c.k ? (sort.dir < 0 ? " ↓" : " ↑") : ""}
-              </th>
-            ))}</tr></thead>
+            <thead>
+              <tr>{cols.map((c) => (
+                <th key={c.k} className={(c.num ? "num " : "") + "sortable"} onClick={() => sortBy(c.k)}>
+                  {c.h}{sort && sort.k === c.k ? (sort.dir < 0 ? " ↓" : " ↑") : ""}
+                </th>
+              ))}</tr>
+              {showFilters && <tr className="filter-row">{cols.map((c) => (
+                <th key={c.k}><input className="col-filter" value={filters[c.k] || ""} placeholder="filter…"
+                  onChange={(e) => setFilters((f) => ({ ...f, [c.k]: e.target.value }))} /></th>
+              ))}</tr>}
+            </thead>
             <tbody>
               {padTop > 0 && <tr aria-hidden style={{ height: padTop }}><td colSpan={cols.length} /></tr>}
               {slice.map((r) => (
@@ -458,7 +469,7 @@ function RecordList({ rows, total, spec, loading, onPick, xf, onRemoveFilter }) 
   );
 }
 
-function RecordDetail({ record, onBack }) {
+function RecordDetail({ record, onBack, onPrev, onNext, pos }) {
   const fields = [
     ["Type", record.issue_type], ["Status", record.status], ["Tier", record.tier],
     ["Tower", record.tower], ["Priority", record.priority], ["Impact", record.impact],
@@ -472,10 +483,24 @@ function RecordDetail({ record, onBack }) {
   ].filter(([, v]) => v != null && v !== "");
   const hops = (record.timeline || []).filter((c) => c.field === "status");
   const path = hops.length ? [hops[0].from, ...hops.map((h) => h.to)].filter(Boolean) : [];
+  const waitHops = hops.filter((c) => rdTier(c.to) === "wait").length;
+  const clock = !record.is_open ? "stopped" : /wait|pending|hold|awaiting/i.test(record.status || "") ? "paused" : "running";
   return (
     <div className="rd">
-      <button className="rl-back" onClick={onBack}>← records</button>
+      <div className="rd-nav">
+        <button className="rl-back" onClick={onBack}>← records</button>
+        <span className="rd-walk">
+          <button className="rl-toggle" onClick={onPrev} disabled={!onPrev} title="Previous record (↑)">↑</button>
+          <span className="rd-pos">{pos}</span>
+          <button className="rl-toggle" onClick={onNext} disabled={!onNext} title="Next record (↓)">↓</button>
+        </span>
+      </div>
       <div className="rd-sum">{record.summary}</div>
+      <div className="sla-clock">
+        <span className="sc-lab">SLA clock</span>
+        <span className={"sc-state " + clock}>{clock}</span>
+        <span className="sc-note">{waitHops} pause{waitHops === 1 ? "" : "s"} in the path (grey nodes below) · resolution verdict: {record.resolution_sla || "—"}. Running/paused is sequence-based — the seed collapses per-step wall-clock.</span>
+      </div>
       <KV rows={fields} />
       {hops.length > 0 && (
         <>
@@ -503,33 +528,76 @@ function RecordDetail({ record, onBack }) {
 export function Drawer({ drill, model, records, onClose }) {
   const [sel, setSel] = useState(null);
   const [xf, setXf] = useState([]);   // cross-filters set by clicking a cohort bar
+  const [pinned, setPinned] = useState(false);   // pinned = overlay click won't close
+  const [size, setSize] = useState("wide");      // "wide" | "full"
+  const [copied, setCopied] = useState(false);   // "copied link" flash
+  const navRef = useRef({});
   useEffect(() => { setSel(null); setXf([]); }, [drill]);
+  // Keyboard nav: Esc back/close, ↑/↓ walk records (in detail), ←/Backspace back, f fullscreen, p pin.
   useEffect(() => {
     if (!drill) return;
-    const onKey = (e) => e.key === "Escape" && (sel ? setSel(null) : onClose());
+    const onKey = (e) => {
+      if (["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
+      const n = navRef.current;
+      if (e.key === "Escape") { if (n.sel) n.setSel(null); else if (!n.pinned) n.onClose(); return; }
+      if (e.key === "f" || e.key === "F") { n.setSize((s) => (s === "full" ? "wide" : "full")); return; }
+      if (e.key === "p" || e.key === "P") { n.setPinned((v) => !v); return; }
+      if (!n.spec || !n.rows) return;
+      if (n.sel) {
+        const i = n.rows.findIndex((r) => r.key === n.sel.key);
+        if ((e.key === "ArrowDown" || e.key === "ArrowRight") && i >= 0 && i < n.rows.length - 1) { n.setSel(n.rows[i + 1]); e.preventDefault(); }
+        else if (e.key === "ArrowUp" && i > 0) { n.setSel(n.rows[i - 1]); e.preventDefault(); }
+        else if (e.key === "ArrowLeft" || e.key === "Backspace") { n.setSel(null); e.preventDefault(); }
+      } else if (e.key === "ArrowDown" && n.rows.length) { n.setSel(n.rows[0]); e.preventDefault(); }
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [drill, onClose, sel]);
+  }, [drill]);
   if (!drill) return null;
   const { title, body, jql: clause } = detail(drill, model);
   const spec = recordSpec(drill, model);
   const baseRows = spec && records ? filterRecords(records, spec, model) : null;
   const shownRows = baseRows ? baseRows.filter((r) => xf.every((f) => (r[f.dim] ?? "—") === f.val)) : null;
   const addFilter = (dim, val) => setXf((p) => (p.some((f) => f.dim === dim && f.val === val) ? p : [...p, { dim, val }]));
+  navRef.current = { sel, rows: shownRows, pinned, spec, setSel, setSize, setPinned, onClose };
+  const selIdx = sel && shownRows ? shownRows.findIndex((r) => r.key === sel.key) : -1;
+  // Shareable link for data-only drills (record-filter drills carry a function, can't round-trip).
+  const shareable = ["metric", "kbgap", "statusgroup", "tower"].includes(drill.type);
+  const copyLink = () => {
+    try {
+      const enc = btoa(unescape(encodeURIComponent(JSON.stringify(drill))));
+      const url = window.location.href.split("/d/")[0] + "/d/" + enc;
+      navigator.clipboard && navigator.clipboard.writeText(url);
+      setCopied(true); setTimeout(() => setCopied(false), 1500);
+    } catch (e) { /* clipboard blocked */ }
+  };
   return (
-    <div className="drawer-overlay" onClick={onClose}>
-      <aside className={"drawer" + (spec ? " drawer-wide" : "")} onClick={(e) => e.stopPropagation()}
-        role="dialog" aria-modal="true" aria-label={title}>
+    <div className="drawer-overlay" onClick={() => !pinned && onClose()}>
+      <aside className={"drawer drawer-wide" + (size === "full" ? " drawer-full" : "") + (pinned ? " pinned" : "")}
+        onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
         <header className="drawer-head">
           <div className="crumbs">
-            <button className={"crumb" + (sel ? " link" : " here")} onClick={sel ? () => setSel(null) : undefined}>{title}</button>
-            {sel && <><span className="crumb-sep">›</span><span className="crumb here">{sel.key}</span></>}
+            <button className="crumb link" onClick={() => { setSel(null); setXf([]); }}>{title}</button>
+            {xf.map((f, i) => (
+              <React.Fragment key={i}><span className="crumb-sep">›</span>
+                <button className="crumb link" onClick={() => { setSel(null); setXf((p) => p.slice(0, i)); }}>{f.dim}={f.val}</button></React.Fragment>
+            ))}
+            {sel ? <><span className="crumb-sep">›</span><span className="crumb here">{sel.key}</span></>
+              : (spec ? <><span className="crumb-sep">›</span><span className="crumb here">records</span></> : null)}
           </div>
-          <button className="drawer-x" onClick={onClose} aria-label="Close">✕</button>
+          <div className="drawer-tools">
+            {shareable && <button className={"drawer-tool" + (copied ? " on" : "")} onClick={copyLink} title="Copy a shareable link to this drill">{copied ? "✓" : "🔗"}</button>}
+            <button className={"drawer-tool" + (pinned ? " on" : "")} onClick={() => setPinned((v) => !v)} title="Pin (p) — keep open on outside click">📌</button>
+            <button className="drawer-tool" onClick={() => setSize((s) => (s === "full" ? "wide" : "full"))} title="Full-width (f)">{size === "full" ? "⤢" : "⤡"}</button>
+            <button className="drawer-x" onClick={onClose} aria-label="Close">✕</button>
+          </div>
         </header>
         <div className="drawer-body">
           {sel
-            ? <RecordDetail record={sel} onBack={() => setSel(null)} />
+            ? <RecordDetail record={sel} onBack={() => setSel(null)}
+                onPrev={selIdx > 0 ? () => setSel(shownRows[selIdx - 1]) : null}
+                onNext={selIdx >= 0 && selIdx < shownRows.length - 1 ? () => setSel(shownRows[selIdx + 1]) : null}
+                pos={selIdx >= 0 ? `${selIdx + 1} of ${shownRows.length}` : ""} />
             : <>
                 {body}
                 {spec && baseRows && <Cohort rows={baseRows} onPick={addFilter} />}

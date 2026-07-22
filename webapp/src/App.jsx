@@ -162,14 +162,23 @@ function Freshness({ iso }) {
 
 // Board state lives in the URL hash (#/PROJECT/LENS/DAYS) so any view is a shareable,
 // bookmarkable link. Parsed on load; kept in sync as the controls change.
+// Drill types whose whole state is data (no predicate function), so they round-trip through
+// a URL. Record-filter drills carry a function and are deliberately not link-encoded.
+const SHAREABLE_DRILL = ["metric", "kbgap", "statusgroup", "tower"];
+function encodeDrill(d) { try { return btoa(unescape(encodeURIComponent(JSON.stringify(d)))); } catch { return ""; } }
+function decodeDrill(s) { try { const d = JSON.parse(decodeURIComponent(escape(atob(s)))); return SHAREABLE_DRILL.includes(d.type) ? d : undefined; } catch { return undefined; } }
+
 function parseHash() {
-  const m = (window.location.hash || "").match(/^#\/([A-Za-z]+)(?:\/([A-Za-z0-9]+))?(?:\/(\d+))?/);
+  const h = window.location.hash || "";
+  const m = h.match(/^#\/([A-Za-z]+)(?:\/([A-Za-z0-9]+))?(?:\/(\d+))?/);
   if (!m) return {};
   const days = m[3] ? Number(m[3]) : undefined;
+  const dm = h.match(/\/d\/([^/]+)/);
   return {
     project: PROJECTS.includes(m[1]) ? m[1] : undefined,
     lens: LENSES.some((l) => l.id === m[2]) ? m[2] : undefined,
     days: WINDOWS.includes(days) ? days : undefined,
+    drill: dm ? decodeDrill(dm[1]) : undefined,
   };
 }
 
@@ -181,7 +190,7 @@ export default function App() {
   const [err, setErr] = useState(null);
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useTheme();
-  const [drill, setDrill] = useState(null);   // the clicked-into detail, or null
+  const [drill, setDrill] = useState(boot.drill || null);   // the clicked-into detail, or null
   const [records, setRecords] = useState({}); // {project: [...]}, lazy-loaded for drills
   const [history, setHistory] = useState({}); // {project: [points]}, the daily snapshot trend
   const [baseline, setBaseline] = useState({}); // {project: {ftr_pct,...}}, frozen pilot baseline
