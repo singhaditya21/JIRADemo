@@ -158,20 +158,29 @@ def _opt(value):
 
 
 def _parse_links(raw):
-    """`fields.issuelinks` -> a flat list of {key, rel, dir, issue_type, status}.
+    """`fields.issuelinks` -> a flat list of {id, key, rel, dir, issue_type, status} where
+    `rel`/`dir` describe THIS issue's relationship to the neighbour.
 
-    Each Jira link names the OTHER issue as inwardIssue or outwardIssue plus a type with
-    directional labels ("causes"/"is caused by"). We flatten to the neighbour's key, the
-    directional phrase, and the neighbour's type/status (Jira returns a small fields subset
-    on the linked issue) so the record layer can render "this problem causes N incidents".
+    Jira response subtlety (a classic footgun): each element carries the NEIGHBOUR under the
+    key that names the NEIGHBOUR's role in the link — NOT this issue's role. So when the
+    neighbour is the link's `inwardIssue`, THIS issue is the link's OUTWARD end and reads to
+    the neighbour with the type's OUTWARD label. We therefore invert: neighbour-under-
+    inwardIssue -> this issue is "outward"/outward-label; neighbour-under-outwardIssue ->
+    this issue is "inward"/inward-label.
+
+    Worked example (verified live via `python3 -m jira_config.link_problems --inspect`): a
+    link created with outwardIssue=Problem, inwardIssue=Incident, type "Problem/Incident"
+    (outward "causes") appears, on the Problem, with the Incident under `inwardIssue`. With
+    this mapping that yields rel="causes" dir="outward" on the Problem — i.e. "Problem causes
+    Incident", which is correct. (The earlier mapping read it as "is caused by" — the bug.)
     """
     out = []
     for l in raw or []:
         t = l.get("type") or {}
-        if l.get("outwardIssue"):
-            oi, direction, rel = l["outwardIssue"], "outward", t.get("outward")
-        elif l.get("inwardIssue"):
-            oi, direction, rel = l["inwardIssue"], "inward", t.get("inward")
+        if l.get("inwardIssue"):        # neighbour is the link's inward issue -> THIS issue is outward/active
+            oi, direction, rel = l["inwardIssue"], "outward", t.get("outward")
+        elif l.get("outwardIssue"):     # neighbour is the link's outward issue -> THIS issue is inward/passive
+            oi, direction, rel = l["outwardIssue"], "inward", t.get("inward")
         else:
             continue
         of = oi.get("fields") or {}

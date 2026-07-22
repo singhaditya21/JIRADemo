@@ -43,6 +43,23 @@ def pick_link_type(j):
     return types[0] if types else None
 
 
+def causer_is_outward(lt):
+    """Which side the ROOT-CAUSE issue (the Problem) belongs on for this link type.
+
+    Returns True if the type's OUTWARD label is the active "causes" phrase (so the Problem
+    goes in outwardIssue), False if the causal phrase is the INWARD label instead (nonstandard
+    type — the Problem goes in inwardIssue). The active phrase contains "cause" but not the
+    passive "caused by". Defaults to outward for an ambiguous/relates-style type. This keeps
+    causality correct regardless of which causal type pick_link_type() selected."""
+    out = (lt.get("outward") or "").lower()
+    inw = (lt.get("inward") or "").lower()
+    out_active = "cause" in out and "caused by" not in out
+    inw_active = "cause" in inw and "caused by" not in inw
+    if inw_active and not out_active:
+        return False
+    return True
+
+
 def per_problem_count(problem_key, base):
     """Deterministic 4..(base+3)-ish spread so problems differ but reproducibly."""
     h = int(hashlib.sha1(problem_key.encode()).hexdigest()[:6], 16)
@@ -146,6 +163,10 @@ def main(argv=None):
     log(f"planned {len(pairs)} problem->incident pairs across "
         f"{len({p.key for p, _ in pairs})} problems")
 
+    # Place the Problem (root cause) on whichever side carries the active "causes" label, so
+    # the stored link always reads "Problem causes Incident" whatever causal type was picked.
+    problem_outward = causer_is_outward(lt)
+
     created = skipped = 0
     for problem, incident in pairs:
         if args.limit and created >= args.limit:
@@ -153,14 +174,15 @@ def main(argv=None):
         if already_linked(problem, incident.key):
             skipped += 1
             continue
-        # outwardIssue "causes" inwardIssue: the Problem is the cause, the Incident the effect.
+        out_key = problem.key if problem_outward else incident.key
+        in_key = incident.key if problem_outward else problem.key
         w.post("/rest/api/3/issueLink", {
             "type": {"name": lt["name"]},
-            "outwardIssue": {"key": problem.key},
-            "inwardIssue": {"key": incident.key},
+            "outwardIssue": {"key": out_key},
+            "inwardIssue": {"key": in_key},
         })
         created += 1
-        log(f"  {problem.key} --{lt.get('outward','causes')}--> {incident.key}"
+        log(f"  {problem.key} (causes) --> {incident.key}"
             f"  ({problem.tower} · {problem.root_cause or 'n/a'})")
 
     log(f"done: {created} link(s) created, {skipped} already present"
