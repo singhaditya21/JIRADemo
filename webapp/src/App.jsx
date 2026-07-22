@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useLayoutEffect, useState, useCallback, useRef } from "react";
 import { KpiStrip, PairingPanel, Analysts, KBGap, Towers, Intake, Ageing,
   SlaOutcomes, BacklogFlow, ChannelQuality, AgeingByStatus,
   QueueByStatus, EscalationReasons, InsightsFeed, IntegrityStrip, ImpactUrgency,
@@ -202,6 +202,29 @@ export default function App() {
     if (window.location.hash !== h) window.history.replaceState(null, "", h);
   }, [project, lens, days]);
   const reqId = useRef(0);
+  const gridRef = useRef(null);
+
+  // Masonry: size each panel's grid-row-end to its own content height (+ a 16px vertical gap)
+  // so a short panel never leaves empty space under a taller row-mate. align-items:start keeps
+  // panels content-height, so measuring is idempotent; a ResizeObserver re-packs on any change.
+  useLayoutEffect(() => {
+    const grid = gridRef.current;
+    if (!grid || typeof ResizeObserver === "undefined") return;
+    let raf = 0;
+    const pack = () => {
+      const panels = [...grid.querySelectorAll(":scope > .panel")];
+      const heights = panels.map((p) => Math.round(p.getBoundingClientRect().height)); // read all first
+      panels.forEach((p, i) => { p.style.gridRowEnd = "span " + (heights[i] + 16); });   // then write all
+    };
+    const schedule = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(pack); };
+    schedule();
+    const ro = new ResizeObserver(schedule);
+    for (const p of grid.querySelectorAll(":scope > .panel")) ro.observe(p);
+    window.addEventListener("resize", schedule);
+    const onLoad = () => schedule();
+    window.addEventListener("load", onLoad);
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); window.removeEventListener("resize", schedule); window.removeEventListener("load", onLoad); };
+  }, [lens, project, model, records, history, baseline]);
 
   // Lazy-load the record-level dataset once the aggregate model is up (record-driven panels
   // and drills both use it); cached per project.
@@ -304,7 +327,7 @@ export default function App() {
               <span>{LENSES.find((l) => l.id === lens).blurb}</span>
             </div>
             <KpiStrip model={model} lens={lens} open={setDrill} />
-            <div className="grid">
+            <div className="grid" ref={gridRef}>
               {lensPanels(lens, project, model, setDrill, records[project] || null, history[project] || null, baseline[project] || null)}
             </div>
             <p className="note">
