@@ -1,0 +1,103 @@
+name: Provision the SFC (DeliveryIQ) project
+
+# One-click provisioning of the REAL "Delivery / SF Config" (SFC) Jira project and its seed
+# data — jira_config/sfc_build.py + fixtures/sfc_seed.py — using the Jira token that already
+# lives in this repo's Actions secrets, so nobody handles the token in a terminal. This is P0
+# for the DeliveryIQ lens (see DELIVERYIQ-SF-CONFIG.md); it flips the lens from the deterministic
+# preview seed to real Jira data.
+#
+# It MUTATES the Jira instance, so it only runs when you trigger it by hand (Actions tab -> this
+# workflow -> "Run workflow") and DEFAULTS TO A DRY RUN: the first click rehearses and writes
+# nothing. To actually provision, set "dry_run" to false. Both scripts are idempotent — re-running
+# reuses existing objects and never duplicates them.
+#
+# Suggested sequence:
+#   1. mode=build, dry_run=true   → read the plan (project, issue types, fields, statuses, workflow)
+#   2. mode=build, dry_run=false  → provision. If the workflow API declines, finish the printed
+#                                    workflow-scheme step in the UI (Project settings → Workflows).
+#   3. mode=seed,  dry_run=true   → read the seed plan (N requests + Org Deploy sub-tasks)
+#   4. mode=seed,  dry_run=false  → create the real issues.
+# (mode=all runs build then seed in one go; on a dry run it seeds only if a prior real build left
+#  state on disk.)
+#
+# FOLLOW-UP (not this Action): point app/export_pages.py at the real SFC project and drop the
+# `python3 -m app.sfc_seed` preview step from pages.yml. Until then the deployed lens keeps
+# showing the clearly-labelled preview.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "build (project+schema) · seed (issues) · all (build then seed)"
+        type: choice
+        options: [build, seed, all]
+        default: build
+      dry_run:
+        description: "Rehearse only — write nothing (uncheck to actually write to Jira)"
+        type: boolean
+        default: true
+      seed_count:
+        description: "Number of Salesforce Config Requests to seed (mode seed/all)"
+        default: "64"
+
+permissions:
+  contents: read
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Provision SFC / seed
+        # SECURITY: every workflow input is passed through `env:` and referenced as a shell
+        # variable ("$MODE", "$DRY_RUN", "$SEED_COUNT") — NEVER interpolated as ${{ ... }} into
+        # the script body, which would let an input value inject shell commands into a step that
+        # holds JIRA_TOKEN. seed_count is validated as a positive integer before use.
+        #
+        # FAIL-SAFE gate: --dry-run stays on unless dry_run is an explicit falsey string. The
+        # decision is a bash `case` on the interpolated string (deterministic), not a GitHub
+        # `${{ == }}` ternary (whose type coercion once defaulted a real run back to dry-run).
+        env:
+          JIRA_SITE: ${{ secrets.JIRA_SITE }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+          MODE: ${{ inputs.mode }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          SEED_COUNT: ${{ inputs.seed_count }}
+        run: |
+          set -euo pipefail
+          case "$SEED_COUNT" in
+            ''|*[!0-9]*) echo "seed_count must be a positive integer, got '$SEED_COUNT'"; exit 1 ;;
+          esac
+          FLAG="--dry-run"
+          case "$DRY_RUN" in
+            false|False|FALSE|no|No|0|off) FLAG="" ;;
+          esac
+          STATE=jira_config/state/.sfc_state.json
+          echo "mode=$MODE  dry_run='$DRY_RUN'  seed_count=$SEED_COUNT  gate=${FLAG:-APPLY (writing to Jira)}"
+
+          run_build() {
+            echo "== build: provisioning the SFC project =="
+            python3 -m jira_config.sfc_build $FLAG
+          }
+          run_seed() {
+            echo "== seed: creating Salesforce Config Requests + Org Deploy sub-tasks =="
+            python3 -m fixtures.sfc_seed $FLAG --n "$SEED_COUNT"
+          }
+
+          case "$MODE" in
+            build) run_build ;;
+            seed)  run_seed ;;
+            all)
+              run_build
+              # A dry build writes no state, so a dry "all" can only seed if a prior REAL build
+              # already left state on disk. Skip loudly rather than hard-fail the rehearsal.
+              if [ -n "$FLAG" ] && [ ! -f "$STATE" ]; then
+                echo "== seed: SKIPPED — dry run with no $STATE yet (run mode=build dry_run=false first) =="
+              else
+                run_seed
+              fi ;;
+          esac

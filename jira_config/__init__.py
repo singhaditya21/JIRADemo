@@ -14,6 +14,7 @@ from pathlib import Path
 STATE_DIR = Path(__file__).resolve().parent / "state"
 BUILD_STATE = STATE_DIR / ".build_state.json"
 JSM_STATE = STATE_DIR / ".jsm_state.json"
+SFC_STATE = STATE_DIR / ".sfc_state.json"
 
 
 def read_state(path):
