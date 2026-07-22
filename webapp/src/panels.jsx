@@ -1221,7 +1221,7 @@ export function AgentLedger({ model, records, open }) {
   ];
   return (
     <div className="panel span-2 integrity">
-      <h2>Agent action ledger <span className="why" style={{ display: "inline", margin: 0 }}>— Build / Comply / Coord outputs, captured as a byproduct of the work.</span></h2>
+      <h2>Agent output ledger <span className="modelled-badge">MODELLED</span> <span className="why" style={{ display: "inline", margin: 0 }}>— Build / Comply / Coord byproducts. The <em>outputs</em> (test-pass, evidence, conflicts) are modelled — no agents run here; the workload &amp; handoffs above are the real pipeline activity.</span></h2>
       <div className="int-row">
         {cards.map((c, i) => (
           <div key={i} className="int-cell ok" style={{ borderLeftColor: c.color }}>
@@ -1230,6 +1230,135 @@ export function AgentLedger({ model, records, open }) {
             <span className="int-note">{c.raw ? "across all requests in window" : "of requests in window"}</span>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ==== DeliveryIQ agents — activity & orchestration ==================================
+// The three agents from the DeliveryIQ deck (Build / Compliance / Coordination) mapped
+// onto the five-stage pipeline. Workload + handoffs are REAL (current stage & changelog
+// transitions of real Jira requests); the agent OUTPUTS stay modelled (AgentLedger); a
+// truly autonomous live event stream needs agents that don't exist here (MockAgentFeed).
+const SFC_AGENTS = ["Build", "Compliance", "Coordination"];
+const AGENT_COLOR = { Build: "var(--accent)", Compliance: "var(--ok)", Coordination: "var(--warn)" };
+// Which agent owns each stage. Build delivers (Intake→Build), Compliance reviews & audits
+// (Review, Audit), Coordination orchestrates the multi-org deploy (Deploy).
+const STAGE_AGENT = { Intake: "Build", Build: "Build", Review: "Compliance", Deploy: "Coordination", Audit: "Compliance" };
+// Frontend mirror of the bake's status→stage map, so a changelog `to` status resolves to a stage.
+const STATUS_STAGE = { Intake: "Intake", "In Build": "Build", "In Review": "Review", "Awaiting CAB": "Deploy", Deploying: "Deploy", Deployed: "Deploy", "Deploy Failed": "Deploy", "Rolled Back": "Deploy", Audit: "Audit", Done: "Audit", Cancelled: "Audit" };
+const agentOf = (stage) => STAGE_AGENT[stage] || "Build";
+
+// (REAL) Agent workload — what each agent is holding right now, from the live current stage.
+export function AgentWorkload({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const openRows = rows.filter((r) => r.is_open);
+  const byAgent = { Build: [], Compliance: [], Coordination: [] };
+  for (const r of openRows) (byAgent[agentOf(r.stage)] || byAgent.Build).push(r);
+  return (
+    <div className="panel span-2">
+      <h2>Agent workload — live</h2>
+      <p className="why">What each DeliveryIQ agent is holding <strong>right now</strong>, from the real current stage of every open request — live to the last bake (real-time if the backend is deployed). <span className="hint">Click an agent or stage.</span></p>
+      <div className="agent-cards">
+        {SFC_AGENTS.map((a) => {
+          const list = byAgent[a] || [];
+          const byStage = {};
+          for (const r of list) byStage[r.stage] = (byStage[r.stage] || 0) + 1;
+          return (
+            <div key={a} className="agent-card" style={{ borderTopColor: AGENT_COLOR[a] }}>
+              <div className="agent-hd" style={{ cursor: "pointer" }}
+                onClick={() => open({ type: "records", label: `${a} agent — in flight`, pred: (r) => r.is_open && agentOf(r.stage) === a })}>
+                <span className="agent-name" style={{ color: AGENT_COLOR[a] }}>{a}</span>
+                <span className="agent-count tnum">{list.length}</span>
+              </div>
+              <div className="agent-stages">
+                {Object.entries(byStage).sort((x, y) => y[1] - x[1]).map(([s, n]) => (
+                  <div key={s} className="leg-item" style={{ justifyContent: "space-between", cursor: "pointer" }}
+                    onClick={() => open({ type: "records", label: `${a} · ${s}`, pred: (r) => r.is_open && r.stage === s })}>
+                    <span>{s}</span><span className="tnum">{n}</span></div>))}
+                {!list.length && <span className="int-note">idle — nothing in flight</span>}
+              </div>
+            </div>);
+        })}
+      </div>
+    </div>
+  );
+}
+
+// (REAL) Handoff map — the pipeline as agent-owned stages, current WIP, and where work waits.
+// Handoff counts come from the real status-change changelog (agent-changing transitions).
+export function AgentHandoff({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const order = ["Intake", "Build", "Review", "Deploy", "Audit"];
+  const wip = {}; for (const s of order) wip[s] = 0;
+  for (const r of rows) if (r.is_open && wip[r.stage] != null) wip[r.stage]++;
+  const maxWip = Math.max(1, ...order.map((s) => wip[s]));
+  const bottleneck = order.filter((s) => wip[s] === maxWip && maxWip > 0)[0];
+  // real handoffs from the changelog: an agent-changing stage transition
+  const handoffs = {};
+  for (const r of rows) {
+    let prev = "Build";                       // every request is created into Intake → Build
+    for (const ev of (r.timeline || [])) {
+      const ag = agentOf(STATUS_STAGE[ev.to] || ev.to);
+      if (ag && ag !== prev) { const k = prev + "→" + ag; handoffs[k] = (handoffs[k] || 0) + 1; prev = ag; }
+    }
+  }
+  const edges = Object.entries(handoffs).sort((a, b) => b[1] - a[1]);
+  return (
+    <div className="panel span-2">
+      <h2>Agent orchestration — handoffs</h2>
+      <p className="why">The pipeline as agent-owned stages, with live WIP per stage and where work waits. Handoff volumes are <strong>real</strong> (agent-changing transitions in the Jira changelog). <span className="hint">Click a stage.</span></p>
+      <div className="pipe-row">
+        {order.map((s, i) => (
+          <React.Fragment key={s}>
+            <div className={`pipe-stage${s === bottleneck ? " wait" : ""}`} style={{ borderColor: AGENT_COLOR[agentOf(s)] }}
+              onClick={() => open({ type: "records", label: `Open in ${s}`, pred: (r) => r.is_open && r.stage === s })} title={`${agentOf(s)} agent`}>
+              <span className="pipe-agent" style={{ color: AGENT_COLOR[agentOf(s)] }}>{agentOf(s)}</span>
+              <span className="pipe-stage-name">{s}</span>
+              <span className="pipe-wip tnum">{wip[s]}<span className="int-note"> open</span></span>
+              {s === bottleneck && <span className="pipe-flag">⌛ waits here</span>}
+            </div>
+            {i < order.length - 1 && <span className="pipe-arrow">→</span>}
+          </React.Fragment>))}
+      </div>
+      <div className="int-note" style={{ marginTop: "0.5rem" }}>
+        handoffs in window: {edges.length ? edges.map(([k, n]) => `${k} ${n}`).join(" · ") : "none yet"}
+      </div>
+    </div>
+  );
+}
+
+// (MOCK) Live agent feed — what an autonomous-agent event stream would look like. There are
+// no running agents here, so this is a deterministic illustration over real requests, badged.
+const AGENT_VERBS = {
+  Build: ["ran unit tests → 0 failures", "packaged the change-set", "linted metadata", "spun up a scratch org"],
+  Compliance: ["logged authorization", "attached the evidence pack", "checked CAB policy", "verified approvals"],
+  Coordination: ["scanned dependencies", "flagged a cross-request conflict", "sequenced the org deploys", "reconciled the roll-up"],
+};
+export function MockAgentFeed({ model, records }) {
+  const rows = inWindow(records, model);
+  const pool = rows.slice().sort((a, b) => hashStr(b.key) - hashStr(a.key)).slice(0, 12);
+  let t = 4;
+  const events = pool.map((r) => {
+    const ag = agentOf(r.stage), verbs = AGENT_VERBS[ag];
+    const verb = verbs[Math.floor(hashStr(r.key + ag) * verbs.length)];
+    t += 3 + Math.floor(hashStr(r.key) * 40);
+    return { ag, verb, key: r.key, ago: t };
+  });
+  const rel = (s) => s < 60 ? `${s}s ago` : `${Math.floor(s / 60)}m ${s % 60}s ago`;
+  return (
+    <div className="panel span-2 mock">
+      <h2>Live agent feed <MockBadge /></h2>
+      <p className="why">What an autonomous-agent event stream would look like once the Build / Compliance / Coordination agents are actually running. <strong>No agents run here</strong> — this is a deterministic illustration over the real requests, not a live stream.</p>
+      <div className="feed-live"><span className="feed-dot" /> streaming (mock)</div>
+      <div className="feed">
+        {events.map((e, i) => (
+          <div key={i} className="feed-row">
+            <span className="feed-time int-note">{rel(e.ago)}</span>
+            <span className="feed-agent" style={{ background: AGENT_COLOR[e.ag] }}>{e.ag}</span>
+            <span className="feed-msg">{e.verb} <span className="int-note">· {e.key}</span></span>
+          </div>))}
+        {!events.length && <span className="why">Loading…</span>}
       </div>
     </div>
   );
