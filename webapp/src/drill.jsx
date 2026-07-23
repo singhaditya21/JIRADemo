@@ -244,11 +244,22 @@ function detail(d, model) {
 // Layer (b): small-multiples of the population behind a mark, sliced several ways.
 function Cohort({ rows, onPick }) {
   if (!rows || rows.length < 3) return null;
-  const dims = [["tower", "by tower"], ["priority", "by priority"], ["status", "by status"], ["intake", "by channel"],
-    ["tier", "by tier"], ["escalation_reason", "by esc. reason"], ["root_cause", "by root cause"], ["resolution_sla", "by SLA outcome"]];
+  // SFC records carry a different vocabulary (stage/risk/CAB/deploy) — slicing them by the
+  // OPS dims (tier/escalation_reason/root_cause/resolution_sla) yielded all-null cohorts.
+  const dims = isSfcRow(rows[0])
+    ? [["stage", "by stage"], ["status", "by status"], ["tower", "by squad"], ["priority", "by priority"],
+       ["change_risk", "by change risk"], ["cab_approval", "by CAB"], ["deploy_rollup", "by deploy"],
+       ["config_component_type", "by component"], ["target_orgs", "by target org"]]
+    : [["tower", "by tower"], ["priority", "by priority"], ["status", "by status"], ["intake", "by channel"],
+       ["tier", "by tier"], ["escalation_reason", "by esc. reason"], ["root_cause", "by root cause"], ["resolution_sla", "by SLA outcome"]];
   const countBy = (k) => {
     const c = {};
-    for (const r of rows) { const v = r[k] || "—"; c[v] = (c[v] || 0) + 1; }
+    for (const r of rows) {
+      const raw = r[k];
+      // multi-valued SFC fields (component types, target orgs) count per element
+      const vals = Array.isArray(raw) ? (raw.length ? raw : ["—"]) : [raw == null || raw === "" ? "—" : raw];
+      for (const v of vals) c[v] = (c[v] || 0) + 1;
+    }
     return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 7).map(([label, value]) => ({ label, value }));
   };
   return (
@@ -323,7 +334,10 @@ function filterRecords(records, spec, model) {
   return rows.filter(spec.pred);
 }
 
-const COLUMNS = [
+// SFC records carry a different vocabulary from OPS/ITSM. Detect by a field only they have.
+const isSfcRow = (r) => !!r && (r.stage !== undefined || Array.isArray(r.org_deploys));
+
+const OPS_COLUMNS = [
   { k: "key", h: "Key", cls: "mono", link: true },
   { k: "summary", h: "Summary", grow: true },
   { k: "issue_type", h: "Type" },
@@ -338,6 +352,26 @@ const COLUMNS = [
   { k: "kb_checked", h: "KB checked" },
   { k: "reopened", h: "Reopen" },
 ];
+
+// The SFC record list showed mostly blanks under the OPS columns (no tier/SLA/KB/reopen on
+// a config request), so a reviewer drilling a stage or org mark couldn't see the lens's own
+// data. These are the columns that actually carry SFC signal.
+const SFC_COLUMNS = [
+  { k: "key", h: "Key", cls: "mono", link: true },
+  { k: "summary", h: "Summary", grow: true },
+  { k: "status", h: "Status" },
+  { k: "stage", h: "Stage" },
+  { k: "tower", h: "Squad" },
+  { k: "priority", h: "Priority" },
+  { k: "change_risk", h: "Risk" },
+  { k: "cab_approval", h: "CAB" },
+  { k: "deploy_rollup", h: "Deploy" },
+  { k: "age_days", h: "Age", num: true, fmt: (v) => (v == null ? "" : Math.round(v)) },
+  { k: "evidence_pack_ready", h: "Evidence", fmt: (v) => (v ? "ready" : "—") },
+  { k: "evidence_overclaimed", h: "Overclaimed", fmt: (v) => (v ? "⚠ yes" : "") },
+];
+
+const columnsFor = (rows) => (isSfcRow((rows || [])[0]) ? SFC_COLUMNS : OPS_COLUMNS);
 
 const csvCell = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
 function download(name, text, type) {
@@ -359,7 +393,8 @@ function RecordList({ rows, total, spec, loading, onPick, xf, onRemoveFilter }) 
   const [scrollTop, setScrollTop] = useState(0);
   const [viewH, setViewH] = useState(560);
   const scrollRef = useRef(null);
-  const cols = COLUMNS.filter((c) => !hidden.has(c.k));
+  const ALL_COLS = columnsFor(rows);   // SFC rows get the SFC vocabulary
+  const cols = ALL_COLS.filter((c) => !hidden.has(c.k));
   const hiCount = spec.hi ? rows.filter(spec.hi).length : null;
   const activeFilters = Object.entries(filters).filter(([, v]) => v);
   let shown = numOnly && spec.hi ? rows.filter(spec.hi) : rows;
@@ -414,7 +449,7 @@ function RecordList({ rows, total, spec, loading, onPick, xf, onRemoveFilter }) 
             <button className="rl-toggle" onClick={(e) => { e.stopPropagation(); setPickOpen((v) => !v); }} title="Choose columns">columns ▾</button>
             {pickOpen && (
               <div className="colpick-menu" onMouseLeave={() => setPickOpen(false)}>
-                {COLUMNS.map((c) => (
+                {ALL_COLS.map((c) => (
                   <label key={c.k} className={c.k === "key" ? "fixed" : ""}>
                     <input type="checkbox" checked={!hidden.has(c.k)} disabled={c.k === "key"}
                       onChange={() => setHidden((h) => { const n = new Set(h); n.has(c.k) ? n.delete(c.k) : n.add(c.k); return n; })} />

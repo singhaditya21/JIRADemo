@@ -25,6 +25,7 @@ Python 3.9. %-formatting, no f-strings with backslashes.
 """
 
 import json
+import os
 from datetime import datetime, timedelta, timezone
 
 from app.store import parse_dt   # Jira "+0530"/"+05:30" timestamp parser, 3.9-safe
@@ -248,6 +249,71 @@ def _apply_staleness(deploys, now):
     return out
 
 
+# ---------------------------------------------------------------------------
+# Evidence pack: COMPUTED, never trusted.
+#
+# Spec §4.4 is emphatic that "Evidence Pack = Ready" must not be a free-set flag — a stored
+# Ready flag can be set while its evidence is absent, which it calls "the precise dishonesty
+# this lens is meant to expose." The build was doing exactly that: reading a seeded Jira
+# Yes/No straight through, so a Done request could read "evidence ready" with a Failed org.
+#
+# So we now carry BOTH: `evidence_pack_claimed` (what the Jira field asserts) and
+# `evidence_pack_ready` (the conjunction over the evidence that actually exists). Where they
+# disagree, that IS the finding — the lens reports the theatre instead of repeating it.
+#
+# Spec conjuncts vs. fields that exist today (2 exact, 2 lossy, 1 proxied, 1 dropped):
+#   C1 Authorization == Authorized  -> comply_authorized (lossy: no N-A state)
+#   C2 changelog non-empty          -> changelog_hops > 0                     (EXACT)
+#   C3 Test Result == Pass          -> build_tested (lossy: Fail == Not run)
+#   C4 Lint Result != Fail          -> NO FIELD — dropped, so this is strictly permissive
+#   C5 Reviewer Check == Passed     -> proxied by a named reviewer past Review
+#   C6 Deployed in EVERY target org -> every target org has a Deployed sub-task (EXACT,
+#                                      and it must range over target_orgs, not just the
+#                                      sub-tasks that happen to exist)
+EVIDENCE_DROPPED = ("Lint Result (no field on this instance)",)
+_PAST_REVIEW = ("Review", "Deploy", "Audit")
+
+
+def _evidence(vals, org_deploys, target_orgs, stage, changelog_hops):
+    """(ready, [missing conjunct labels]). Pure — unit-testable without Jira."""
+    missing = []
+    if not vals.get("comply_authorized"):
+        missing.append("authorization not logged")
+    if not (changelog_hops or 0) > 0:
+        missing.append("no action history")
+    if not vals.get("build_tested"):
+        missing.append("tests not passed")
+    # C5 proxy: a named reviewer AND the request actually got past the Review gate.
+    if not (vals.get("l2_analyst") and stage in _PAST_REVIEW):
+        missing.append("no reviewer past Review gate")
+    # C6: every TARGET org must have a Deployed record. Ranging over org_deploys alone would
+    # silently pass a request whose target org has no sub-task at all.
+    deployed = {d.get("org") for d in org_deploys if d.get("deploy_state") == "Deployed"}
+    not_deployed = [o for o in (target_orgs or []) if o not in deployed]
+    if not target_orgs:
+        missing.append("no target orgs")
+    elif not_deployed:
+        missing.append("not deployed in " + ", ".join(sorted(not_deployed)))
+    return (not missing), missing
+
+
+def _is_redeployed(timeline):
+    """REAL anti-gaming counter (spec §1 `Redeployed`, the SFC analogue of Reopened).
+
+    No such Jira field was ever built — but it does not need one: a redeploy is visible in
+    the changelog as a return to Deploying/Deployed AFTER a Failed/Rolled-back hop. Derived
+    from real history beats an automation-set flag anyway.
+    """
+    seen_fail = False
+    for ev in timeline or []:
+        to = ev.get("to")
+        if to in ("Deploy Failed", "Rolled Back"):
+            seen_fail = True
+        elif seen_fail and to in ("Deploying", "Deployed"):
+            return True
+    return False
+
+
 def _request_record(raw, F, site, deploys_by_parent, now):
     f = raw.get("fields") or {}
     key = raw.get("key")
@@ -301,10 +367,17 @@ def _request_record(raw, F, site, deploys_by_parent, now):
         "comply_evidence": bool(vals["comply_evidence"]),
         "coord_conflicts": int(vals["coord_conflicts"]) if vals["coord_conflicts"] is not None else 0,
         "coord_dependencies": int(vals["coord_dependencies"]) if vals["coord_dependencies"] is not None else 0,
-        "evidence_pack_ready": bool(vals["evidence_pack_ready"]),
         "timeline": tl, "changelog_hops": len(tl),
         "preview": False,
     })
+    # Evidence pack: what Jira CLAIMS vs what the evidence actually supports. Never trust
+    # the stored flag (spec §4.4) — and keep both so the gap is reportable, not hidden.
+    ready, missing = _evidence(vals, org_deploys, vals["target_orgs"], stage, len(tl))
+    rec["evidence_pack_claimed"] = bool(vals["evidence_pack_ready"])
+    rec["evidence_pack_ready"] = ready
+    rec["evidence_missing"] = missing
+    rec["evidence_overclaimed"] = bool(rec["evidence_pack_claimed"] and not ready)
+    rec["is_redeployed"] = _is_redeployed(tl)
     return rec
 
 
@@ -312,24 +385,58 @@ def _request_record(raw, F, site, deploys_by_parent, now):
 # model
 # ---------------------------------------------------------------------------
 
+def _metric(num, den, target=None, direction=None, value=None):
+    """One scoreboard tile on the OPS contract: num/den + target + PASS/GAP verdict."""
+    val = value if value is not None else ((num / den * 100) if den else None)
+    m = {"value": val, "num": num, "den": den, "target": target,
+         "direction": direction, "verdict": None}
+    if target is not None and val is not None:
+        m["verdict"] = "PASS" if (val >= target if direction == "ge" else val <= target) else "GAP"
+    return m
+
+
 def _scoreboard(records):
-    deployed = sum(1 for r in records for d in r["org_deploys"]
-                   if d.get("deploy_state") == "Deployed")
-    total = sum(len(r["org_deploys"]) for r in records) or 1
+    """The SFC scoreboard, on the same num/den + target + verdict contract as OPS (§5.1).
+
+    NOTE on the denominator, which was previously wrong in a way that flattered nothing but
+    misled anyway: deploy success counted every org-deploy CELL including "Not started", so a
+    request targeting five orgs that hasn't shipped yet contributed five "failures". Success
+    is now measured over ATTEMPTED deploys only, and the PROD-specific tile the spec actually
+    asks for is reported alongside it.
+    """
+    cells = [d for r in records for d in r["org_deploys"]]
+    attempted = [d for d in cells if d.get("deploy_state") != "Not started"]
+    deployed = [d for d in attempted if d.get("deploy_state") == "Deployed"]
+
+    prod_ok = sum(1 for r in records if any(
+        d.get("org") == "Prod" and d.get("deploy_state") == "Deployed" for d in r["org_deploys"]))
+    prod_fail = sum(1 for r in records if any(
+        d.get("org") == "Prod" and d.get("deploy_state") == "Failed" for d in r["org_deploys"]))
+    rolled = sum(1 for r in records if any(
+        d.get("deploy_state") == "Rolled back" for d in r["org_deploys"]))
+    redeployed = sum(1 for r in records if r.get("is_redeployed"))
+    shipped = sum(1 for r in records if r.get("deploy_rollup") != "Not started")
+    ev_ready = sum(1 for r in records if r.get("evidence_pack_ready"))
+
     lead = sorted(
         (datetime.fromisoformat(r["resolved_at"]) - datetime.fromisoformat(r["reported_at"]))
         .total_seconds() / 86400.0
         for r in records if r["resolved_at"] and r["reported_at"])
-    sb = {
-        "deploy_success_pct": {"value": deployed / total * 100, "num": deployed,
-                               "den": total, "target": 90, "direction": "ge", "verdict": None},
-        "lead_time_d": {"value": (lead[len(lead) // 2] if lead else None),
-                        "num": None, "den": None, "target": None, "direction": None, "verdict": None},
+
+    return {
+        # success among deploys actually ATTEMPTED (not-started cells excluded)
+        "deploy_success_pct": _metric(len(deployed), len(attempted), 90, "ge"),
+        # §5.1 tile 2 — the PROD-only headline
+        "prod_deploy_success_pct": _metric(prod_ok, prod_ok + prod_fail, 90, "ge"),
+        # §5.1 tile 3 — counter-metric: any-org rollbacks over PROD successes. The mismatched
+        # pair is deliberate (same class as FTR-num/reopen-den) so neither can be gamed alone.
+        "rollback_rate_pct": _metric(rolled, prod_ok or None, 5, "le"),
+        # §1 Redeployed — derived from real changelog, pairs against deploy success
+        "redeploy_rate_pct": _metric(redeployed, shipped or None, 10, "le"),
+        # §5.1 tile 5 — COMPUTED readiness, not the stored claim
+        "evidence_ready_pct": _metric(ev_ready, len(records) or None, 95, "ge"),
+        "lead_time_d": _metric(None, None, value=(lead[len(lead) // 2] if lead else None)),
     }
-    m = sb["deploy_success_pct"]
-    if m["value"] is not None:
-        m["verdict"] = "PASS" if m["value"] >= m["target"] else "GAP"
-    return sb
 
 
 def _model(records, days, now, generated_at):
@@ -431,6 +538,16 @@ def fetch_sfc_records(j, now=None):
         elif itype == REQUEST_TYPE:
             requests.append(it)
     records = [_request_record(it, F, j.site, deploys_by_parent, now) for it in requests]
+
+    # PRIVACY: app/export_pages honours PSEUDONYMISE_ANALYSTS for OPS/ITSM, but the SFC bake
+    # was writing the named reviewer (l2_analyst) verbatim into a world-readable artifact —
+    # the lens bypassed the repo's own control. Apply the same masking here.
+    if os.environ.get("PSEUDONYMISE_ANALYSTS", "").lower() in ("1", "true", "yes"):
+        names = sorted({r["l2_analyst"] for r in records if r.get("l2_analyst")})
+        alias = {n: "Reviewer %02d" % (k + 1) for k, n in enumerate(names)}
+        for r in records:
+            if r.get("l2_analyst"):
+                r["l2_analyst"] = alias.get(r["l2_analyst"], r["l2_analyst"])
     return records, now
 
 

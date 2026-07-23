@@ -29,6 +29,7 @@ Two ways to run it:
 import argparse
 import json
 import os
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -115,9 +116,19 @@ def compute_records(project):
 
 
 def _cors_origin():
-    """Which origin may read this API. A public read-only tower defaults to open; pin
-    CORS_ALLOW_ORIGIN=https://<user>.github.io to lock it to the deployed Pages origin."""
+    """Which origin may read this API. Pin CORS_ALLOW_ORIGIN=https://<user>.github.io to lock
+    it to the deployed Pages origin; "*" only if you deliberately want it open."""
     return os.environ.get("CORS_ALLOW_ORIGIN", "*")
+
+
+def _authorised(handler):
+    """Optional shared-secret gate. Set API_TOKEN on the host and the Pages build to require
+    `Authorization: Bearer <token>`; unset, the API stays open (fine for localhost dev, NOT
+    for a public PaaS — this proxy reads your whole Jira project)."""
+    want = os.environ.get("API_TOKEN")
+    if not want:
+        return True
+    return handler.headers.get("Authorization") == "Bearer " + want
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -139,6 +150,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
+        if not _authorised(self):
+            return self._send(401, json.dumps({"error": "unauthorised"}))
         if u.path == "/api/health":
             return self._send(200, json.dumps({"ok": True}))
         q = parse_qs(u.query)
@@ -152,13 +165,15 @@ class Handler(BaseHTTPRequestHandler):
                 days = 90
             try:
                 return self._send(200, json.dumps(compute(project, days)))
-            except Exception as e:  # surface the real error to the browser, don't hang
-                return self._send(500, json.dumps({"error": str(e)[:400]}))
+            except Exception as e:  # log the detail, return a generic body
+                print(repr(e), file=sys.stderr)
+                return self._send(500, json.dumps({"error": "upstream failure"}))
         if u.path == "/api/records":
             try:
                 return self._send(200, json.dumps(compute_records(project)))
             except Exception as e:
-                return self._send(500, json.dumps({"error": str(e)[:400]}))
+                print(repr(e), file=sys.stderr)
+                return self._send(500, json.dumps({"error": "upstream failure"}))
         return self._send(404, json.dumps({"error": "not found"}))
 
     def log_message(self, *a):

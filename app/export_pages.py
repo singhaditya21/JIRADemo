@@ -250,7 +250,9 @@ def export(out_dir, day_windows):
             print(f"  + {rname}  ({len(records)} records, changelog)")
             index["projects"].append(project)
         except Exception as e:
-            index["errors"][project] = f"{type(e).__name__}: {e}"
+            # PUBLIC ARTIFACT: index.json ships to a world-readable Pages site, so it gets
+            # only the exception CLASS. The detail goes to stderr, where Actions masks secrets.
+            index["errors"][project] = type(e).__name__
             print(f"  ! {project}: export failed - {e}", file=sys.stderr)
             continue
 
@@ -270,7 +272,7 @@ def export(out_dir, day_windows):
         ok_any = True
         print("  + SFC live bake (%d requests)" % count)
     except Exception as e:
-        index["errors"]["SFC"] = "%s: %s" % (type(e).__name__, e)
+        index["errors"]["SFC"] = type(e).__name__      # class only — see above
         print("  ! SFC: live bake skipped - %s (preview seed still covers the lens)" % e,
               file=sys.stderr)
 

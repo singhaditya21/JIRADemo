@@ -24,6 +24,11 @@ import random
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+# The evidence conjunction and the redeploy derivation are defined ONCE, in the real bake —
+# schema parity between preview and live is the contract, so the preview imports them rather
+# than restating them (a second copy is how the two silently drift).
+from app.sfc_export import _evidence, _is_redeployed, _scoreboard as _sfc_scoreboard
+
 DEFAULT_OUT = Path(__file__).resolve().parent.parent / "webapp" / "public" / "data"
 
 SQUADS = ["Sales Cloud", "Service Cloud", "Platform / Core", "Revenue / CPQ", "Data & Integrations", "Experience Cloud"]
@@ -142,7 +147,16 @@ def build(n, days, now, span=None):
         comply_evidence = si >= 5 or is_done
         coord_conflicts = rnd.randint(0, 2) if si >= 1 else 0
         coord_deps = rnd.randint(0, 4)
-        evidence_pack_ready = is_done or (si >= 6 and rnd.random() < 0.7)
+        # What Jira would CLAIM (a free-set flag), kept only so the lens can contrast it with
+        # the computed truth — see app/sfc_export._evidence and spec §4.4.
+        evidence_claimed = is_done or (si >= 6 and rnd.random() < 0.7)
+        l2_analyst = rnd.choice(REVIEWERS) if si >= 2 else None
+        timeline = [{"at": None, "field": "status", "from": STAGE_STATUS[j][1],
+                     "to": STAGE_STATUS[j + 1][1]} for j in range(si)]
+        ev_ready, ev_missing = _evidence(
+            {"comply_authorized": comply_authorized, "build_tested": build_tested,
+             "l2_analyst": l2_analyst},
+            org_deploys, target, stage, si)
 
         records.append({
             "key": key, "url": f"https://singhaditya21.atlassian.net/browse/{key}",
@@ -152,15 +166,18 @@ def build(n, days, now, span=None):
             "tower": squad, "priority": rnd.choices(PRIORITIES, weights=[2, 4, 6, 4])[0],
             "impact": rnd.choice(IMPACT), "urgency": rnd.choice(URGENCY), "intake": rnd.choice(CHANNELS),
             "change_risk": risk, "config_component_type": comps, "target_orgs": target, "package_ref": f"sfdx/{key.lower()}",
-            "cab_approval": cab, "l2_analyst": rnd.choice(REVIEWERS) if si >= 2 else None,
+            "cab_approval": cab, "l2_analyst": l2_analyst,
             "reported_at": _iso(reported), "reported_ts": reported.timestamp(),
             "first_response_at": _iso(first_response), "escalated_at": _iso(escalated),
             "resolved_at": _iso(resolved), "age_days": round(age_days, 2), "response_hours": round(response_hours, 3) if response_hours else None,
             "is_open": is_open, "is_done": is_done,
             "org_deploys": org_deploys, "deploy_rollup": deploy_rollup,
             "build_tested": build_tested, "comply_authorized": comply_authorized, "comply_evidence": comply_evidence,
-            "coord_conflicts": coord_conflicts, "coord_dependencies": coord_deps, "evidence_pack_ready": evidence_pack_ready,
-            "timeline": [{"at": None, "field": "status", "from": STAGE_STATUS[j][1], "to": STAGE_STATUS[j + 1][1]} for j in range(si)],
+            "coord_conflicts": coord_conflicts, "coord_dependencies": coord_deps,
+            "evidence_pack_claimed": evidence_claimed, "evidence_pack_ready": ev_ready,
+            "evidence_missing": ev_missing, "evidence_overclaimed": bool(evidence_claimed and not ev_ready),
+            "is_redeployed": _is_redeployed(timeline),
+            "timeline": timeline,
             "changelog_hops": si,
             "preview": True,
         })
@@ -169,18 +186,9 @@ def build(n, days, now, span=None):
     # re-windows the (window-agnostic) records file — otherwise the masthead's "N in
     # window" disagrees with every panel on the 30/90-day tabs.
     in_window = [r for r in records if r["reported_ts"] >= window_start.timestamp()]
-    deployed_orgs = sum(1 for r in in_window for d in r["org_deploys"] if d["deploy_state"] == "Deployed")
-    total_org_targets = sum(len(r["org_deploys"]) for r in in_window) or 1
-    lead = [((datetime.fromisoformat(r["resolved_at"]) - datetime.fromisoformat(r["reported_at"])).total_seconds() / 86400.0)
-            for r in in_window if r["resolved_at"]]
-    lead.sort()
-    sb = {
-        "deploy_success_pct": {"value": deployed_orgs / total_org_targets * 100, "num": deployed_orgs, "den": total_org_targets, "target": 90, "direction": "ge", "verdict": None},
-        "lead_time_d": {"value": (lead[len(lead) // 2] if lead else None), "num": None, "den": None, "target": None, "direction": None, "verdict": None},
-    }
-    for k, m in sb.items():
-        if m.get("target") is not None and m.get("value") is not None:
-            m["verdict"] = "PASS" if (m["value"] >= m["target"] if m["direction"] == "ge" else m["value"] <= m["target"]) else "GAP"
+    # ONE scoreboard implementation, shared with the live bake — so a preview tile and a live
+    # tile can never be computed differently (num/den/target/verdict all come from there).
+    sb = _sfc_scoreboard(in_window)
     model = {
         "project": "SFC", "preview": True, "window_days": days,
         "generated_at": now.isoformat(), "now_ts": now.timestamp(), "window_start_ts": window_start.timestamp(),

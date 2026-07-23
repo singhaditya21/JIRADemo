@@ -1127,25 +1127,54 @@ export function DeliveryPreviewBanner({ model }) {
   );
 }
 
-export function SFCKpi({ model, records }) {
+// The SFC scoreboard, on the SAME contract as the OPS KpiStrip (spec §5.1): every tile
+// carries num/den, a target, a PASS/GAP verdict and a one-click drill whose row count
+// reconciles. It previously rendered six bare numbers with no target, verdict or drill —
+// and its "deploy success" counted every org cell INCLUDING "Not started", so a request
+// that simply hadn't shipped yet dragged the rate down. The bake now measures success over
+// ATTEMPTED deploys and reports the PROD-specific tile the spec actually asks for.
+const SFC_TILES = [
+  { k: "deploy_success_pct", lab: "Deploy success", unit: "%", note: "of attempted org deploys",
+    pred: (r) => (r.org_deploys || []).some((d) => /failed|rolled/i.test(d.deploy_state || "")) },
+  { k: "prod_deploy_success_pct", lab: "PROD deploy success", unit: "%", note: "Prod org only",
+    pred: (r) => (r.org_deploys || []).some((d) => d.org === "Prod" && d.deploy_state === "Failed") },
+  { k: "rollback_rate_pct", lab: "Rollback rate", unit: "%", note: "counter-metric to deploy success",
+    pred: (r) => (r.org_deploys || []).some((d) => d.deploy_state === "Rolled back") },
+  { k: "redeploy_rate_pct", lab: "Redeploy rate", unit: "%", note: "re-shipped after a failure",
+    pred: (r) => r.is_redeployed },
+  { k: "evidence_ready_pct", lab: "Evidence ready", unit: "%", note: "computed, not claimed",
+    pred: (r) => !r.evidence_pack_ready },
+  { k: "lead_time_d", lab: "Lead time (med)", unit: "d", note: "reported → resolved",
+    pred: (r) => !!r.resolved_at },
+];
+
+export function SFCKpi({ model, records, open }) {
   const rows = inWindow(records, model);
-  const ods = rows.flatMap((r) => r.org_deploys || []);
-  const deployed = ods.filter((d) => d.deploy_state === "Deployed").length;
-  const failed = ods.filter((d) => /failed|rolled/i.test(d.deploy_state)).length;
-  const lead = rows.filter((r) => r.resolved_at).map(ttrHours).filter((x) => x != null);
-  const evReady = rows.filter((r) => r.evidence_pack_ready).length;
+  const sb = model.scoreboard || {};
+  const over = rows.filter((r) => r.evidence_overclaimed).length;
   return (
     <div className="panel span-full">
       <h2>Delivery scoreboard</h2>
-      <p className="why">Salesforce config requests across the DeliveryIQ pipeline. Deploy state &amp; health are per-org (Model A sub-tasks). {records ? "" : "Loading…"}</p>
-      <div className="miniboard">
-        <div><span className="k">requests</span><span className="v tnum">{rows.length}</span></div>
-        <div><span className="k">org-deploys</span><span className="v tnum">{ods.length}</span></div>
-        <div><span className="k">deploy success</span><span className="v tnum" style={{ color: "var(--ok)" }}>{ods.length ? Math.round(deployed / ods.length * 100) : "—"}%</span></div>
-        <div><span className="k">deploys failed</span><span className="v tnum" style={{ color: failed ? "var(--crit)" : "var(--ok)" }}>{failed}</span></div>
-        <div><span className="k">lead time (med)</span><span className="v tnum">{dur(median(lead))}</span></div>
-        <div><span className="k">evidence ready</span><span className="v tnum">{evReady}</span></div>
+      <p className="why">{rows.length} Salesforce config requests in window. Each tile carries its numerator/denominator, target and verdict — click one to see the records behind it. {records ? "" : "Loading…"}</p>
+      <div className="kpis">
+        {SFC_TILES.map((t) => {
+          const m = sb[t.k] || {};
+          const val = m.value == null ? "—" : (t.unit === "%" ? pct(m.value) : f1(m.value) + "d");
+          return (
+            <div key={t.k} className="kpi" onClick={() => open && open({ type: "records", label: t.lab, pred: t.pred })} style={{ cursor: open ? "pointer" : "default" }}>
+              <span className="kpi-k">{t.lab}</span>
+              <span className="kpi-v tnum">{val}</span>
+              <span className="kpi-note">{t.note}{m.num != null && m.den != null ? ` · ${m.num}/${m.den}` : ""}</span>
+              <Verdict m={m} />
+            </div>
+          );
+        })}
       </div>
+      {over > 0 && (
+        <p className="why" style={{ marginTop: "0.5rem", color: "var(--warn)" }}>
+          ⚠ <strong>{over}</strong> request{over === 1 ? "" : "s"} assert “evidence pack ready” in Jira but do <strong>not</strong> meet the evidence test — readiness above is <strong>computed</strong>, never the stored flag. <span className="hint" onClick={() => open && open({ type: "records", label: "Evidence overclaimed", pred: (r) => r.evidence_overclaimed, reconcile: over })} style={{ cursor: "pointer" }}>See them.</span>
+        </p>
+      )}
     </div>
   );
 }

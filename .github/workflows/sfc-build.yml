@@ -82,6 +82,10 @@ jobs:
           case "$SEED_COUNT" in
             ''|*[!0-9]*) echo "seed_count must be a positive integer, got '$SEED_COUNT'"; exit 1 ;;
           esac
+          # Upper bound: this creates real Jira issues, so cap the blast radius.
+          if [ "$SEED_COUNT" -lt 1 ] || [ "$SEED_COUNT" -gt 500 ]; then
+            echo "seed_count must be between 1 and 500, got $SEED_COUNT"; exit 1
+          fi
           FLAG="--dry-run"
           case "$DRY_RUN" in
             false|False|FALSE|no|No|0|off) FLAG="" ;;

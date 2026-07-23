@@ -49,6 +49,10 @@ WRITEBACK_SOURCE = "Modelled"   # no live Salesforce -> values are modelled, lab
 # "Not started" orgs are left untouched (Source = Seeded) — nothing has shipped there.
 DEPLOYED_STATES = {"Validated", "Deploying", "Deployed", "Failed", "Rolled back"}
 
+# The model only owns cells IT wrote. A human triaging a real incident (or a future
+# real-Salesforce integration) sets a different Source — never clobber those.
+OWNED_SOURCES = {"Seeded", "Modelled", None}
+
 
 def deploy_health_model(parent_status, current_state, org, key):
     """Return (deploy_state, config_health) for one org — MODELLED, not observed.
@@ -138,6 +142,9 @@ def main(argv=None):
         if cur not in DEPLOYED_STATES:
             skipped += 1                 # nothing shipped to this org yet -> nothing to model
             continue
+        if _sel(f, F, "Deploy Source") not in OWNED_SOURCES:
+            skipped += 1                 # human- or integration-owned cell; leave it alone
+            continue
         state, health = deploy_health_model(parent_status.get(parent), cur, org, parent or key)
 
         # Only write when something actually MOVED, or when the stamp has gone stale and
@@ -162,7 +169,7 @@ def main(argv=None):
             written += 1
             continue
         try:
-            j.put("/rest/api/3/issue/%s" % key, {"fields": fields})
+            j.put("/rest/api/3/issue/%s?notifyUsers=false" % key, {"fields": fields})
             written += 1
         except RuntimeError as e:
             failed += 1

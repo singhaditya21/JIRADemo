@@ -50,6 +50,10 @@ jobs:
           JIRA_SITE: ${{ secrets.JIRA_SITE }}
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
           JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+          # The deployed site is world-readable, so mask named individuals in the artifact.
+          # (Analyst names on this instance are synthetic, but the control belongs ON for a
+          # public host — and the SFC lens now honours it too.)
+          PSEUDONYMISE_ANALYSTS: "1"
         run: python3 -m app.export_pages   # stdlib only, no pip install needed
 
       - name: Alert on off-target KPIs
@@ -89,7 +93,7 @@ jobs:
             echo "snapshot history + baselines unchanged — nothing to commit"
           else
             git commit -m "Snapshot history + baselines $(date -u +%F) [skip ci]"
-            git push origin HEAD:${GITHUB_REF_NAME}
+            git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
 
       - uses: oven-sh/setup-bun@v2
