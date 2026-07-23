@@ -27,7 +27,8 @@ from pathlib import Path
 # The evidence conjunction and the redeploy derivation are defined ONCE, in the real bake —
 # schema parity between preview and live is the contract, so the preview imports them rather
 # than restating them (a second copy is how the two silently drift).
-from app.sfc_export import _evidence, _is_redeployed, _scoreboard as _sfc_scoreboard
+from app.sfc_export import (_evidence, _is_redeployed, _scoreboard as _sfc_scoreboard,
+                            _invariants as _sfc_invariants, STALE_HOURS)
 
 DEFAULT_OUT = Path(__file__).resolve().parent.parent / "webapp" / "public" / "data"
 
@@ -126,12 +127,15 @@ def build(n, days, now, span=None):
                 checked = now - timedelta(hours=rnd.uniform(0, 48))
             else:
                 health, checked = "Unknown", None
-            # `stale`/`health_age_h` keep schema parity with the real bake's staleness guard
-            # (app/sfc_export._apply_staleness); the preview stamps recent checks, so nothing
-            # is stale here — the keys exist so the panels behave identically on either source.
+            # Apply the SAME staleness guard as the real bake (app/sfc_export._apply_staleness)
+            # rather than hardcoding stale=False — otherwise the freshness invariant would pass
+            # trivially on preview data while the guard was never exercised.
             age_h = round((now - checked).total_seconds() / 3600.0, 2) if checked else None
+            stale = health != "Unknown" and (age_h is None or age_h > STALE_HOURS)
+            if stale:
+                health = "Unknown"
             org_deploys.append({"org": org, "deploy_state": dstate, "config_health": health,
-                                "health_checked_at": _iso(checked), "stale": False, "health_age_h": age_h,
+                                "health_checked_at": _iso(checked), "stale": bool(stale), "health_age_h": age_h,
                                 "source": ("Modelled" if dstate not in ("Not started",) else "Seeded")})
 
         # roll-ups
@@ -193,7 +197,7 @@ def build(n, days, now, span=None):
         "project": "SFC", "preview": True, "window_days": days,
         "generated_at": now.isoformat(), "now_ts": now.timestamp(), "window_start_ts": window_start.timestamp(),
         "window_label": f"{window_start:%d %b} – {now:%d %b %Y}", "volume": len(in_window),
-        "scoreboard": sb, "warnings": [],
+        "scoreboard": sb, "warnings": [], "invariants": _sfc_invariants(in_window),
         "note": "PREVIEW dataset — the SFC Jira project is not yet provisioned (see DELIVERYIQ-SF-CONFIG.md P0). Deterministic seed; not live Jira/Salesforce.",
     }
     return model, records

@@ -439,6 +439,72 @@ def _scoreboard(records):
     }
 
 
+def _invariants(records):
+    """The SFC self-checks (spec §7.1 N-SF1..N-SF4 + §2.2), as {text, ok} rows.
+
+    Two kinds live here. RECONCILIATION checks assert the panels cannot disagree (buckets
+    partition the population, slices sum to their denominator). WART-CATCHERS assert nothing
+    about correctness — they surface the instance's own contradictions, flagged rather than
+    hidden, exactly as the OPS tower reports "171 at L2 but 15 never crossed the gate".
+    """
+    inv = []
+    n = len(records)
+
+    # N-SF2(a) — the five stage buckets must partition every request.
+    staged = sum(1 for r in records if r.get("stage") in SF_STAGES)
+    inv.append({"ok": staged == n,
+                "text": "Stage buckets partition the population (%d/%d requests land in "
+                        "exactly one of %s)." % (staged, n, "/".join(SF_STAGES))})
+
+    # N-SF2(b) — health slices must sum to the org-deploy denominator the board divides by.
+    cells = [d for r in records for d in r["org_deploys"]]
+    slices = sum(1 for d in cells
+                 if d.get("config_health") in ("Healthy", "Degraded", "Failing", "Unknown"))
+    inv.append({"ok": slices == len(cells),
+                "text": "Config-health slices sum to the org-deploy count (%d/%d cells)."
+                        % (slices, len(cells))})
+
+    # N-SF1 — provenance: every deploy/health cell must say where it came from.
+    sourced = sum(1 for d in cells if d.get("source"))
+    inv.append({"ok": sourced == len(cells),
+                "text": "Every deploy/health cell carries a Source (%d/%d) — nothing renders "
+                        "as fact without provenance." % (sourced, len(cells))})
+
+    # N-SF3 — freshness: a verdict with no fresh check must read Unknown, never the last good
+    # colour. _apply_staleness enforces it; this asserts the enforcement actually held.
+    leaked = sum(1 for d in cells
+                 if d.get("config_health") not in (None, "Unknown") and d.get("stale"))
+    inv.append({"ok": leaked == 0,
+                "text": "Staleness guard held: %d stale cell(s) still showing a colour "
+                        "(must be 0 — stale reads Unknown)." % leaked})
+
+    # N-SF4 — WART: a request in Audit whose target orgs are not all deployed is a
+    # contradiction. Cancelled folds into stage Audit too, so exclude it or this is noise.
+    wart4 = [r for r in records
+             if r.get("stage") == "Audit" and r.get("status") != "Cancelled"
+             and any(d.get("deploy_state") != "Deployed" for d in r["org_deploys"])]
+    inv.append({"ok": not wart4,
+                "text": "Stage↔deploy consistency: %d request(s) sit in Audit with an org "
+                        "not Deployed — flagged, not hidden." % len(wart4)})
+
+    # §2.2 — WART: reached a deploy status without a recorded CAB approval, for changes that
+    # were supposed to need one. The structural half of the gate-bypass check.
+    wart_cab = [r for r in records
+                if any((h.get("to") in ("Deploying", "Deployed", "Deploy Failed"))
+                       for h in (r.get("timeline") or []))
+                and r.get("cab_approval") not in ("Approved", "Not required")]
+    inv.append({"ok": not wart_cab,
+                "text": "CAB gate: %d request(s) reached a deploy status without a recorded "
+                        "approval — flagged, not hidden." % len(wart_cab)})
+
+    # Evidence theatre — the stored claim vs the computed truth (spec §4.4).
+    over = sum(1 for r in records if r.get("evidence_overclaimed"))
+    inv.append({"ok": over == 0,
+                "text": "Evidence packs: %d request(s) assert 'ready' in Jira without the "
+                        "evidence to support it — readiness is computed, not trusted." % over})
+    return inv
+
+
 def _model(records, days, now, generated_at):
     window_start = now - timedelta(days=days)
     in_window = [r for r in records
@@ -450,6 +516,7 @@ def _model(records, days, now, generated_at):
         "window_label": "%s – %s" % (window_start.strftime("%d %b"),
                                           now.strftime("%d %b %Y")),
         "volume": len(in_window), "scoreboard": _scoreboard(in_window), "warnings": [],
+        "invariants": _invariants(in_window),
         "note": ("Live SFC Jira data. The stage/funnel, squad, CAB and agent-action "
                  "ledger are real Jira data. Per-org deploy state & config health are "
                  "MODELLED — DeliveryIQ tracks Salesforce config requests as Jira issues "

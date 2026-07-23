@@ -54,6 +54,10 @@ function lensPanels(lens, project, model, open, records, history, baseline) {
     <MockBreachRisk key="mbr" {...R} />,
     <MockMultiInstance key="mmi" {...R} />,
     <MockOutcomes18mo key="mo18" {...R} />,
+    // The tower's signature discipline, previously absent from SFC: the self-checks that
+    // gate whether a panel may render, plus the wart-catchers that surface the instance's
+    // own contradictions rather than hiding them (model.invariants, emitted by the bake).
+    <InvariantFooter key="inv" {...P} />,
   ];
   if (lens === "L1") return [
     <InsightsFeed key="ins" {...P} />,
