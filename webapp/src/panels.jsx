@@ -1,5 +1,8 @@
 import React, { useState } from "react";
 import { Sparkline, Bars, AnalystBand, Pairing, Heatmap, BoxPlot, DotPlot, Donut, Sankey, Histogram, StackedBar } from "./charts.jsx";
+import { SFC_STAGES, DEPLOY_ORDER, HEALTH_COLOR, SFC_AGENTS, AGENT_COLOR, STAGE_AGENT,
+  STATUS_STAGE, agentOf, agentHandoffs, STALL_H, isStalled, AT_RISK_REASONS, atRiskRows,
+  SOF, SOF_ORDER, SOF_COLOR, stageFlow, sofNodes } from "./sfc-logic.js";
 
 const f1 = (v) => (v == null ? "—" : (Math.round(v * 10) / 10).toFixed(1));
 const pct = (v) => (v == null ? "—" : f1(v) + "%");
@@ -1101,9 +1104,6 @@ export function SnapshotTrends({ history }) {
 }
 
 // ==== DeliveryIQ — Salesforce Config lens (SFC) =======================================
-const SFC_STAGES = ["Intake", "Build", "Review", "Deploy", "Audit"];
-const DEPLOY_ORDER = ["Not started", "Validated", "Deploying", "Deployed", "Failed", "Rolled back"];
-const HEALTH_COLOR = { Healthy: "var(--ok)", Degraded: "var(--warn)", Failing: "var(--crit)", Unknown: "var(--muted)" };
 
 // Honesty banner. Loud amber while the lens runs on the deterministic preview seed;
 // once the real SFC Jira project is baked (model.preview === false) it drops to a
@@ -1272,14 +1272,9 @@ export function AgentLedger({ model, records, open }) {
 // onto the five-stage pipeline. Workload + handoffs are REAL (current stage & changelog
 // transitions of real Jira requests); the agent OUTPUTS stay modelled (AgentLedger); a
 // truly autonomous live event stream needs agents that don't exist here (MockAgentFeed).
-const SFC_AGENTS = ["Build", "Compliance", "Coordination"];
-const AGENT_COLOR = { Build: "var(--accent)", Compliance: "var(--ok)", Coordination: "var(--warn)" };
 // Which agent owns each stage. Build delivers (Intake→Build), Compliance reviews & audits
 // (Review, Audit), Coordination orchestrates the multi-org deploy (Deploy).
-const STAGE_AGENT = { Intake: "Build", Build: "Build", Review: "Compliance", Deploy: "Coordination", Audit: "Compliance" };
 // Frontend mirror of the bake's status→stage map, so a changelog `to` status resolves to a stage.
-const STATUS_STAGE = { Intake: "Intake", "In Build": "Build", "In Review": "Review", "Awaiting CAB": "Deploy", Deploying: "Deploy", Deployed: "Deploy", "Deploy Failed": "Deploy", "Rolled Back": "Deploy", Audit: "Audit", Done: "Audit", Cancelled: "Audit" };
-const agentOf = (stage) => STAGE_AGENT[stage] || "Build";
 
 // (REAL) Agent workload — what each agent is holding right now, from the live current stage.
 export function AgentWorkload({ model, records, open }) {
@@ -1326,15 +1321,7 @@ export function AgentHandoff({ model, records, open }) {
   for (const r of rows) if (r.is_open && wip[r.stage] != null) wip[r.stage]++;
   const maxWip = Math.max(1, ...order.map((s) => wip[s]));
   const bottleneck = order.filter((s) => wip[s] === maxWip && maxWip > 0)[0];
-  // real handoffs from the changelog: an agent-changing stage transition
-  const handoffs = {};
-  for (const r of rows) {
-    let prev = "Build";                       // every request is created into Intake → Build
-    for (const ev of (r.timeline || [])) {
-      const ag = agentOf(STATUS_STAGE[ev.to] || ev.to);
-      if (ag && ag !== prev) { const k = prev + "→" + ag; handoffs[k] = (handoffs[k] || 0) + 1; prev = ag; }
-    }
-  }
+  const handoffs = agentHandoffs(rows);   // pure, unit-tested in sfc-logic.test.js
   const edges = Object.entries(handoffs).sort((a, b) => b[1] - a[1]);
   return (
     <div className="panel span-2">
@@ -1536,32 +1523,11 @@ export function SFCOutcomes({ model, records, baseline }) {
 // Three spec tokens do not exist on this instance and are substituted honestly rather than
 // faked: statuses "Build Blocked"/"Changes Requested" (a rejected CAB is the real analogue),
 // health "Drifted" (the vocabulary is Healthy/Degraded/Failing/Unknown), and lower-case risk.
-const STALL_H = { Intake: 24, Build: 72, Review: 48, Deploy: 24, Audit: 120 };
-const isStalled = (r) => {
-  const t = r.time_in_stage_h;
-  return t != null && t >= (STALL_H[r.stage] ?? 72);
-};
-const AT_RISK_REASONS = [
-  { k: "stalled", lab: (r) => `stalled @ ${r.stage}`, test: isStalled },
-  { k: "deploy_failed", lab: () => "deploy failed",
-    test: (r) => (r.org_deploys || []).some((d) => d.deploy_state === "Failed") || r.status === "Deploy Failed" },
-  { k: "rolled_back", lab: () => "rolled back",
-    test: (r) => (r.org_deploys || []).some((d) => d.deploy_state === "Rolled back") || r.status === "Rolled Back" },
-  { k: "cab_rejected", lab: () => "CAB rejected", test: (r) => r.cab_approval === "Rejected" },
-  { k: "evidence_gap", lab: () => "evidence incomplete",
-    test: (r) => ["Deploy", "Audit"].includes(r.stage) && !r.evidence_pack_ready },
-  { k: "health", lab: () => "config degraded",
-    test: (r) => (r.org_deploys || []).some((d) => ["Degraded", "Failing"].includes(d.config_health)) },
-  { k: "risky_stall", lab: () => "high-risk & stalled",
-    test: (r) => String(r.change_risk || "").toLowerCase() === "high" && isStalled(r) },
-];
 
 export function AtRiskQueue({ model, records, open }) {
   // Population is "not done" — a Deploy-Failed request is exactly what belongs in this queue.
   const pop = inWindow(records, model).filter((r) => !r.is_done);
-  const rows = pop.map((r) => ({ r, reasons: AT_RISK_REASONS.filter((x) => x.test(r)) }))
-    .filter((x) => x.reasons.length)
-    .sort((a, b) => b.reasons.length - a.reasons.length || (b.r.time_in_stage_h || 0) - (a.r.time_in_stage_h || 0));
+  const rows = atRiskRows(pop);           // pure, unit-tested in sfc-logic.test.js
   const perReason = AT_RISK_REASONS.map((x) => ({ ...x, n: pop.filter(x.test).length })).filter((x) => x.n);
   const summed = perReason.reduce((a, x) => a + x.n, 0);
   return (
@@ -1598,38 +1564,11 @@ export function AtRiskQueue({ model, records, open }) {
 // from the record's five-bucket `stage` field. Backward ribbons are the leakage the panel
 // exists to show: review ping-pong (review→build), deploy rework (deploy→build), post-audit
 // rollback (audit→deploy).
-const SOF = { Intake: "intake", "In Build": "build", "In Review": "review",
-  "Awaiting CAB": "deploy", Deploying: "deploy", Deployed: "deploy",
-  "Deploy Failed": "deploy", "Rolled Back": "deploy", Audit: "audit",
-  Done: "done", Cancelled: "done" };
-const SOF_ORDER = ["intake", "build", "review", "deploy", "audit", "done"];
-const SOF_COLOR = { intake: "var(--muted)", build: "var(--accent)", review: "var(--ok)",
-  deploy: "var(--warn)", audit: "var(--accent-dim)", done: "var(--ok)" };
 
 export function StageSankey({ model, records, open }) {
   const rows = inWindow(records, model);
-  const counts = {};
-  let hops = 0;
-  for (const r of rows) {
-    for (const c of (r.timeline || []).filter((x) => x.field === "status")) {
-      const f = SOF[c.from], t = SOF[c.to];
-      if (!f || !t || f === t) continue;          // same-node hops carry no flow
-      counts[f + "|" + t] = (counts[f + "|" + t] || 0) + 1;
-      hops++;
-    }
-  }
-  // A node's value is the flow through it on that side of the diagram.
-  const node = (id, side) => ({ id: side + id, label: id, color: SOF_COLOR[id],
-    value: Object.entries(counts).reduce((a, [k, v]) =>
-      a + ((side === "L" ? k.split("|")[0] : k.split("|")[1]) === id ? v : 0), 0) });
-  const left = SOF_ORDER.map((s) => node(s, "L")).filter((n) => n.value > 0);
-  const right = SOF_ORDER.map((s) => node(s, "R")).filter((n) => n.value > 0);
-  const links = Object.entries(counts).map(([k, v]) => {
-    const [f, t] = k.split("|");
-    return { from: "L" + f, to: "R" + t, value: v,
-             back: SOF_ORDER.indexOf(f) > SOF_ORDER.indexOf(t) };
-  });
-  const backward = links.filter((l) => l.back);
+  const { counts, hops, links, backward } = stageFlow(rows);  // pure, unit-tested
+  const left = sofNodes(counts, "L"), right = sofNodes(counts, "R");
   return (
     <div className="panel span-2">
       <h2>Stage flow &amp; leakage</h2>

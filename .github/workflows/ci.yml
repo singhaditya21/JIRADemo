@@ -1,0 +1,47 @@
+name: CI — tests
+
+# Runs both suites on every push and PR. Neither needs Jira, a token or a network:
+#   * pytest      — the bake's pure functions (evidence conjunction, staleness guard,
+#                   scoreboard denominators, invariants, health model, preview parity)
+#   * bun test    — the lens's own rules (at-risk predicates, stall thresholds, agent map
+#                   and handoffs, stage-of-flight flow)
+#
+# These exist because the honesty guarantees the tower makes are enforced entirely in code:
+# evidence is computed not claimed, a stale verdict reads Unknown, buckets partition, one
+# metric has one implementation. Without a suite that RUNS, a refactor can quietly delete any
+# of them — which is exactly how the history/baseline metric split shipped a fake improvement.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read      # no secrets, no writes — this job never touches Jira
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pytest
+      - run: python3 -m pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - working-directory: webapp
+        run: bun test
+      - name: Build must succeed (a broken bundle fails the Pages deploy)
+        working-directory: webapp
+        run: |
+          bun install --frozen-lockfile
+          bun run build
