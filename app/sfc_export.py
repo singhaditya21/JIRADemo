@@ -553,21 +553,26 @@ HISTORY_CAP = 180       # keep ~6 months of daily points
 
 def _sfc_point(records, now, generated_at):
     """A dated snapshot of the headline SFC KPIs over the 90-day window. Date-keyed and
-    rounded, so two bakes on one day produce a byte-identical point (no CI churn)."""
+    rounded, so two bakes on one day produce a byte-identical point (no CI churn).
+
+    DERIVED FROM _scoreboard, never recomputed. This function used to carry its own copy of
+    the deploy-success maths, and when the scoreboard's denominator was corrected (attempted
+    deploys, not every cell) this copy was missed — so the KPI tile read 55% while the trend
+    line and the frozen baseline read 27%, and "outcomes vs baseline" showed a ~28-point
+    improvement that never happened. One metric, one implementation.
+    """
     cut = (now - timedelta(days=HISTORY_WINDOW)).timestamp()
     win = [r for r in records if r["reported_ts"] and r["reported_ts"] >= cut]
+    sb = _scoreboard(win)
     ods = [d for r in win for d in r["org_deploys"]]
-    total = len(ods) or 1
-    deployed = sum(1 for d in ods if d.get("deploy_state") == "Deployed")
     healthy = sum(1 for d in ods if d.get("config_health") == "Healthy")
-    lead = sorted(
-        (datetime.fromisoformat(r["resolved_at"]) - datetime.fromisoformat(r["reported_at"]))
-        .total_seconds() / 86400.0
-        for r in win if r["resolved_at"] and r["reported_at"])
+    val = lambda k: (lambda v: round(v, 2) if isinstance(v, (int, float)) else v)(sb[k]["value"])
     return {"date": generated_at[:10], "volume": len(win),
-            "deploy_success_pct": round(deployed / total * 100, 2),
-            "healthy_pct": round(healthy / total * 100, 2),
-            "lead_time_d": round(lead[len(lead) // 2], 2) if lead else None}
+            "deploy_success_pct": val("deploy_success_pct"),
+            "prod_deploy_success_pct": val("prod_deploy_success_pct"),
+            "evidence_ready_pct": val("evidence_ready_pct"),
+            "healthy_pct": round(healthy / (len(ods) or 1) * 100, 2),
+            "lead_time_d": val("lead_time_d")}
 
 
 def _append_history(out_dir, point):

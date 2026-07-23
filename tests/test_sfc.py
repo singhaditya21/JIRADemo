@@ -332,3 +332,31 @@ def test_time_in_stage_falls_back_to_reported_for_a_request_that_never_moved():
     assert never_moved
     for r in never_moved:
         assert abs(r["time_in_stage_h"] - r["age_days"] * 24) < 0.5
+
+
+# ---------------------------------------------------------------------------
+# ONE metric, ONE implementation — the drift that shipped a fake improvement
+# ---------------------------------------------------------------------------
+
+def test_history_point_matches_the_scoreboard_exactly():
+    """_sfc_point once carried its own copy of the deploy-success maths. When the
+    scoreboard's denominator was corrected, the copy was missed: the KPI tile read 55%
+    while the trend line and the frozen baseline read 27%, so 'outcomes vs baseline'
+    displayed a ~28-point improvement that never happened. Pin them together."""
+    _m, recs = S.build(64, 180, NOW, span=180)
+    gen = NOW.isoformat()
+    point = X._sfc_point(recs, NOW, gen)
+    cut = (NOW - timedelta(days=X.HISTORY_WINDOW)).timestamp()
+    win = [r for r in recs if r["reported_ts"] >= cut]
+    sb = X._scoreboard(win)
+    for k in ("deploy_success_pct", "prod_deploy_success_pct", "evidence_ready_pct"):
+        assert point[k] == round(sb[k]["value"], 2), "%s drifted from the scoreboard" % k
+    assert point["volume"] == len(win)
+
+
+def test_baseline_and_scoreboard_speak_the_same_units():
+    """A frozen baseline is write-once, so a metric redefinition silently poisons it
+    forever. The baseline must be built from the same point function as the tiles."""
+    _m, recs = S.build(64, 180, NOW, span=180)
+    point = X._sfc_point(recs, NOW, NOW.isoformat())
+    assert set(("deploy_success_pct", "healthy_pct", "lead_time_d", "volume")) <= set(point)
