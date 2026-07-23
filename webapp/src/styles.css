@@ -1,7 +1,7 @@
 :root {
   --ink: #0e1a1f;
   --ink-soft: #3b5057;
-  --muted: #64787e;
+  --muted: #5c6f75;
   --rule: #c9d3d2;
   --paper: #edf0ef;
   --raised: #f8faf9;
@@ -52,7 +52,8 @@ header.mast {
   text-transform: uppercase; letter-spacing: 0.1em; }
 .fresh { color: var(--accent); }
 .fresh::before { content: "● "; font-size: 0.7em; vertical-align: middle; }
-.controls { margin-left: auto; display: flex; gap: 0.5rem; align-items: center; }
+.controls { margin-left: auto; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;
+  justify-content: flex-end; max-width: 100%; }
 .controls button, .controls select {
   font-family: var(--mono); font-size: 0.78rem; color: var(--ink);
   background: var(--raised); border: 1px solid var(--rule); border-radius: 4px;
