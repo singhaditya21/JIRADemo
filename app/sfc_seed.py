@@ -55,14 +55,22 @@ def _iso(dt):
     return dt.isoformat() if dt else None
 
 
-def build(n, days, now):
+def build(n, days, now, span=None):
+    """`days` is the MODEL window; `span` is how far back records are generated.
+
+    They are separate on purpose: every window model must be computed over ONE record set
+    (generated across `span`, the widest window) and then filtered to `days` — the same way
+    the client re-windows the records file. Generating a fresh set per window made each
+    window claim the full volume while the panels showed the windowed subset.
+    """
+    span = span or days
     rnd = random.Random(20260722)
     window_start = now - timedelta(days=days)
     records = []
     for i in range(n):
         key = f"SFC-{1000 + i}"
         squad = rnd.choice(SQUADS)
-        reported = now - timedelta(days=rnd.uniform(1, days), hours=rnd.uniform(0, 24))
+        reported = now - timedelta(days=rnd.uniform(1, span), hours=rnd.uniform(0, 24))
         age_days = (now - reported).total_seconds() / 86400.0
         # stage is distributed independently of age (weighted toward mid/late so every window
         # shows real deploys), so a status filter and the funnel agree but any window has a mix
@@ -72,7 +80,9 @@ def build(n, days, now):
         if status in ("Deploying", "Deployed") and rnd.random() < 0.12:
             stage, status = "Deploy", "Deploy Failed"
         is_done = status == "Done"
-        is_open = not is_done and status not in ("Deploy Failed",)
+        # "Deploy Failed" is unfinished work needing rework — it must stay OPEN, or it
+        # vanishes from every WIP / agent-workload view (matches app/sfc_export).
+        is_open = not is_done
 
         risk = rnd.choices(RISK, weights=[5, 3, 2])[0]
         comps = rnd.sample(COMPONENTS, rnd.randint(1, 3))
@@ -111,8 +121,13 @@ def build(n, days, now):
                 checked = now - timedelta(hours=rnd.uniform(0, 48))
             else:
                 health, checked = "Unknown", None
+            # `stale`/`health_age_h` keep schema parity with the real bake's staleness guard
+            # (app/sfc_export._apply_staleness); the preview stamps recent checks, so nothing
+            # is stale here — the keys exist so the panels behave identically on either source.
+            age_h = round((now - checked).total_seconds() / 3600.0, 2) if checked else None
             org_deploys.append({"org": org, "deploy_state": dstate, "config_health": health,
-                                "health_checked_at": _iso(checked), "source": ("Modelled" if dstate not in ("Not started",) else "Seeded")})
+                                "health_checked_at": _iso(checked), "stale": False, "health_age_h": age_h,
+                                "source": ("Modelled" if dstate not in ("Not started",) else "Seeded")})
 
         # roll-ups
         states = [d["deploy_state"] for d in org_deploys]
@@ -150,11 +165,14 @@ def build(n, days, now):
             "preview": True,
         })
 
-    # minimal delivery model for the KPI strip + window filtering
-    deployed_orgs = sum(1 for r in records for d in r["org_deploys"] if d["deploy_state"] == "Deployed")
-    total_org_targets = sum(len(r["org_deploys"]) for r in records) or 1
+    # Model KPIs are computed over the records IN THIS WINDOW, exactly as the client
+    # re-windows the (window-agnostic) records file — otherwise the masthead's "N in
+    # window" disagrees with every panel on the 30/90-day tabs.
+    in_window = [r for r in records if r["reported_ts"] >= window_start.timestamp()]
+    deployed_orgs = sum(1 for r in in_window for d in r["org_deploys"] if d["deploy_state"] == "Deployed")
+    total_org_targets = sum(len(r["org_deploys"]) for r in in_window) or 1
     lead = [((datetime.fromisoformat(r["resolved_at"]) - datetime.fromisoformat(r["reported_at"])).total_seconds() / 86400.0)
-            for r in records if r["resolved_at"]]
+            for r in in_window if r["resolved_at"]]
     lead.sort()
     sb = {
         "deploy_success_pct": {"value": deployed_orgs / total_org_targets * 100, "num": deployed_orgs, "den": total_org_targets, "target": 90, "direction": "ge", "verdict": None},
@@ -166,7 +184,7 @@ def build(n, days, now):
     model = {
         "project": "SFC", "preview": True, "window_days": days,
         "generated_at": now.isoformat(), "now_ts": now.timestamp(), "window_start_ts": window_start.timestamp(),
-        "window_label": f"{window_start:%d %b} – {now:%d %b %Y}", "volume": len(records),
+        "window_label": f"{window_start:%d %b} – {now:%d %b %Y}", "volume": len(in_window),
         "scoreboard": sb, "warnings": [],
         "note": "PREVIEW dataset — the SFC Jira project is not yet provisioned (see DELIVERYIQ-SF-CONFIG.md P0). Deterministic seed; not live Jira/Salesforce.",
     }
@@ -181,11 +199,15 @@ def main(argv=None):
     args = ap.parse_args(argv)
     now = datetime.now(timezone.utc)
     args.out.mkdir(parents=True, exist_ok=True)
-    for days in (30, 90, 180):
-        model, records = build(args.n, days, now)
+    # ONE record set, built at the widest span, windowed per model — the same discipline the
+    # real bake uses. Generating a fresh 64 records per window made every window file claim
+    # volume=64 while the (180-day) records file windowed down to 8/29 on the 30/90 tabs.
+    WIDEST = 180
+    for days in (30, 90, WIDEST):
+        model, _ = build(args.n, days, now, span=WIDEST)
         (args.out / f"SFC-{days}.json").write_text(json.dumps(model, separators=(",", ":"), default=str))
     # records file is window-agnostic (client windows it), built at the widest span
-    _, records = build(args.n, 180, now)
+    _, records = build(args.n, WIDEST, now, span=WIDEST)
     (args.out / "SFC-records.json").write_text(json.dumps(
         {"project": "SFC", "preview": True, "generated_at": now.isoformat(), "count": len(records), "records": records},
         separators=(",", ":"), default=str))

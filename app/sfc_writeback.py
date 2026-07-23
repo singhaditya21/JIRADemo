@@ -20,8 +20,11 @@ If a real Salesforce org is ever connected, deploy_health_model() is the single 
 replace with real Tooling/Metadata API calls; write Deploy Source = "CI writeback" then
 so the board can distinguish observed data from the model. Nothing else changes.
 
-Dry-run-first: --dry-run logs every write and mutates nothing. The token is CI-only, so
-run this via .github/workflows/sfc-writeback.yml (dry_run defaults true).
+Run modes (the workflow decides): a MANUAL dispatch defaults to a dry rehearsal
+(dry_run=true); the 6-hourly SCHEDULED run APPLIES. To keep that unattended cadence from
+churning Jira, a cell is only written when its modelled deploy state or health actually
+CHANGED, or when its Health Checked At has gone stale (older than STALE_HOURS) and needs
+re-stamping — an unchanged, freshly-checked cell is skipped.
 
     python3 -m app.sfc_writeback [--dry-run]
 
@@ -36,8 +39,9 @@ import hashlib
 from datetime import datetime, timezone
 
 from shared.jira_client import Jira, log, require_env
+from app.store import parse_dt
 from app.sfc_export import (resolve_fields, _fetch_all, _org_from_summary,
-                            REQUEST_TYPE, SUBTASK_TYPE)
+                            STALE_HOURS, REQUEST_TYPE, SUBTASK_TYPE)
 
 WRITEBACK_SOURCE = "Modelled"   # no live Salesforce -> values are modelled, labelled so
 
@@ -77,6 +81,22 @@ def _cur_state(f, F):
     return v.get("value") if isinstance(v, dict) else None
 
 
+def _sel(f, F, name):
+    v = f.get(F[name]) if name in F else None
+    return v.get("value") if isinstance(v, dict) else None
+
+
+def _stamp_age_h(f, F, now):
+    """Hours since Health Checked At, or None if never stamped."""
+    raw = f.get(F["Health Checked At"]) if "Health Checked At" in F else None
+    if not raw:
+        return None
+    try:
+        return (now - parse_dt(raw)).total_seconds() / 3600.0
+    except (TypeError, ValueError):
+        return None
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="app.sfc_writeback")
     ap.add_argument("--dry-run", action="store_true",
@@ -106,8 +126,9 @@ def main(argv=None):
             subtasks.append(it)
     log("SFC: %d requests, %d Org Deploy sub-tasks" % (len(parent_status), len(subtasks)))
 
-    checked = jira_dt(datetime.now(timezone.utc))
-    written = skipped = failed = 0
+    now = datetime.now(timezone.utc)
+    checked = jira_dt(now)
+    written = skipped = unchanged = failed = 0
     for it in subtasks:
         f = it.get("fields") or {}
         key = it["key"]
@@ -118,6 +139,18 @@ def main(argv=None):
             skipped += 1                 # nothing shipped to this org yet -> nothing to model
             continue
         state, health = deploy_health_model(parent_status.get(parent), cur, org, parent or key)
+
+        # Only write when something actually MOVED, or when the stamp has gone stale and
+        # needs refreshing. Without this the 6-hourly cron rewrote every cell 4x a day —
+        # pure churn in each issue's history for an identical value.
+        age_h = _stamp_age_h(f, F, now)
+        same = (state == cur and health == _sel(f, F, "Config Health")
+                and _sel(f, F, "Deploy Source") == WRITEBACK_SOURCE)
+        fresh = age_h is not None and age_h <= STALE_HOURS
+        if same and fresh:
+            unchanged += 1
+            continue
+
         fields = {
             F["Deploy State"]: {"value": state},
             F["Config Health"]: {"value": health},
@@ -135,6 +168,8 @@ def main(argv=None):
             failed += 1
             log("  ! %s: %s" % (key, str(e)[:140]))
 
+    log("  %d unchanged & fresh (skipped to avoid churn; re-stamped only past %dh)"
+        % (unchanged, STALE_HOURS))
     verb = ("would be written [DRY RUN]" if args.dry_run
             else "written (Source=%s)" % WRITEBACK_SOURCE)
     log("\n%d org-deploy sub-task(s) %s, %d skipped (not deployed), %d failed"

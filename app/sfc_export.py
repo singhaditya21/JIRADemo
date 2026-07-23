@@ -212,6 +212,42 @@ def _subtask_record(raw, F):
     return parent, dep
 
 
+# The staleness guard, for real. Every doc + the lens banner promise "a verdict with no
+# fresh check reads Unknown, never green" — that was previously an unbacked claim: nothing
+# compared Health Checked At to the clock, so an aged "Healthy" stayed green forever. The
+# writeback re-stamps every 6h, so anything unchecked for more than STALE_HOURS means the
+# probe has stopped and the verdict is no longer evidence of anything.
+STALE_HOURS = 24
+
+
+def _apply_staleness(deploys, now):
+    """Force a stale (or never-checked) health verdict to Unknown, and flag it.
+
+    Returns NEW dicts — the raw verdict is replaced on purpose: a green cell nobody has
+    re-checked is exactly the false comfort the guard exists to prevent. `stale` is kept so
+    the health board can report how many cells went Unknown for staleness rather than
+    because nothing was deployed.
+    """
+    out = []
+    for d in deploys:
+        dep = dict(d)
+        checked = dep.get("health_checked_at")
+        age_h = None
+        if checked:
+            try:
+                age_h = (now - datetime.fromisoformat(checked)).total_seconds() / 3600.0
+            except (TypeError, ValueError):
+                age_h = None
+        stale = (dep.get("config_health") not in (None, "Unknown")
+                 and (age_h is None or age_h > STALE_HOURS))
+        dep["stale"] = bool(stale)
+        dep["health_age_h"] = round(age_h, 2) if age_h is not None else None
+        if stale:
+            dep["config_health"] = "Unknown"
+        out.append(dep)
+    return out
+
+
 def _request_record(raw, F, site, deploys_by_parent, now):
     f = raw.get("fields") or {}
     key = raw.get("key")
@@ -232,12 +268,15 @@ def _request_record(raw, F, site, deploys_by_parent, now):
     first = vals["first_response_at"]
     resolved = vals["resolved_at"]
     is_done = category == "done"
-    is_open = (not is_done) and status not in ("Deploy Failed",)
+    # A request in "Deploy Failed" is NOT finished — it needs rework, and it is the most
+    # urgent thing an agent is holding. It previously fell into a gap (neither open nor
+    # done) and silently vanished from every open-work / WIP / agent-workload view.
+    is_open = not is_done
     age_days = (now - reported).total_seconds() / 86400.0 if reported else None
     resp_h = ((first - reported).total_seconds() / 3600.0
               if (reported and first) else None)
 
-    org_deploys = deploys_by_parent.get(key, [])
+    org_deploys = _apply_staleness(deploys_by_parent.get(key, []), now)
     states = [d.get("deploy_state") for d in org_deploys]
     deploy_rollup = ("Deployed" if states and all(s == "Deployed" for s in states)
                      else "Failed" if any(s in ("Failed", "Rolled back") for s in states)

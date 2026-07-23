@@ -8,8 +8,15 @@ name: Provision the SFC (DeliveryIQ) project
 #
 # It MUTATES the Jira instance, so it only runs when you trigger it by hand (Actions tab -> this
 # workflow -> "Run workflow") and DEFAULTS TO A DRY RUN: the first click rehearses and writes
-# nothing. To actually provision, set "dry_run" to false. Both scripts are idempotent — re-running
-# reuses existing objects and never duplicates them.
+# nothing. To actually provision, set "dry_run" to false.
+#
+# IDEMPOTENCY — the two scripts differ, so read this before re-running:
+#   * mode=build (jira_config.sfc_build) IS idempotent: it reuses the existing project, issue
+#     types, fields, statuses and workflow, and never duplicates them. Safe to re-run.
+#   * mode=seed (fixtures.sfc_seed) CREATES issues, so it is NOT naturally idempotent — a second
+#     run would mint a SECOND full set. It therefore refuses to run when SFC already holds
+#     Salesforce Config Requests (pass --force locally to deliberately add another batch).
+#     Delete the existing batch first (JQL: project = SFC) if you want a clean re-seed.
 #
 # Suggested sequence:
 #   1. mode=build, dry_run=true   → read the plan (project, issue types, fields, statuses, workflow,

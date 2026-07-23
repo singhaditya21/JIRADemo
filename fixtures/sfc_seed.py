@@ -279,16 +279,53 @@ def resolve_fields(j):
     return F, missing
 
 
+def existing_request_count(j):
+    """How many Salesforce Config Requests already exist. 0 means the project is empty.
+
+    Used as the idempotency guard: this seeder CREATES issues, so unlike jira_config.sfc_build
+    it is not naturally re-runnable — a second run would mint a second full set.
+    """
+    jql = 'project = %s AND issuetype = "%s"' % (PROJECT_KEY, REQUEST_TYPE)
+    try:                      # modern count endpoint
+        res = j.post("/rest/api/3/search/approximate-count", {"jql": jql})
+        if isinstance(res, dict) and res.get("count") is not None:
+            return int(res["count"])
+    except RuntimeError:
+        pass
+    try:                      # fallback: does at least one exist?
+        page = j.post("/rest/api/3/search/jql", {"jql": jql, "maxResults": 1, "fields": ["key"]})
+        return len(page.get("issues") or [])
+    except RuntimeError:
+        return 0              # project absent / unreadable — the createmeta gate will catch it
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="fixtures.sfc_seed")
     ap.add_argument("--n", type=int, default=64)
     ap.add_argument("--days", type=int, default=180)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--workers", type=int, default=6)
+    ap.add_argument("--force", action="store_true",
+                    help="seed even though SFC already holds requests (ADDS a duplicate batch)")
     args = ap.parse_args(argv)
 
     require_env()
     j = Jira()
+
+    # IDEMPOTENCY GUARD. This seeder is not idempotent by nature (every run POSTs new
+    # issues), so re-running silently doubled the dataset: 64 -> 128 -> 192. Refuse unless
+    # the operator explicitly asks for another batch.
+    n_existing = existing_request_count(j)
+    if n_existing:
+        log("  ! SFC already holds %d Salesforce Config Request(s)." % n_existing)
+        if not args.force:
+            msg = ("Refusing to seed: this would create a SECOND full set (duplicates), not "
+                   "update the existing one. Delete the current batch first (JQL: project = "
+                   "%s) or pass --force to deliberately add another." % PROJECT_KEY)
+            if args.dry_run:
+                log("  ! [dry] %s" % msg)   # let the rehearsal still print the plan
+            else:
+                sys.exit(msg)
     F, missing = resolve_fields(j)
     log("  resolved %d/%d SFC field names to ids" % (len(F), len(F) + len(missing)))
     if missing:

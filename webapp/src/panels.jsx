@@ -1189,12 +1189,15 @@ export function ConfigHealthBoard({ model, records, open }) {
   const ods = rows.flatMap((r) => r.org_deploys || []);
   const slices = ["Healthy", "Degraded", "Failing", "Unknown"].map((h) => ({ label: h, color: HEALTH_COLOR[h], value: ods.filter((d) => d.config_health === h).length })).filter((s) => s.value);
   const modelRefreshed = ods.filter((d) => d.source === "Modelled").length;
-  const stale = ods.filter((d) => d.config_health !== "Unknown" && !d.health_checked_at).length;
+  // `stale` is set by the bake's real staleness guard (app/sfc_export._apply_staleness):
+  // a verdict unchecked for longer than the threshold is FORCED to Unknown, so this counts
+  // cells that went grey because nobody re-checked them — not because nothing deployed.
+  const stale = ods.filter((d) => d.stale).length;
   const healthy = ods.filter((d) => d.config_health === "Healthy").length;
   return (
     <div className="panel span-2">
       <h2>Config health</h2>
-      <p className="why"><strong>Modelled</strong> post-deploy health per org — no live Salesforce; maintained by the writeback job. A verdict with no fresh check reads <strong>Unknown</strong>, never green. {records ? "" : "Loading…"}</p>
+      <p className="why"><strong>Modelled</strong> post-deploy health per org — no live Salesforce; maintained by the writeback job. A verdict unchecked for over 24h is forced to <strong>Unknown</strong>, never left green. {records ? "" : "Loading…"}</p>
       {records && (
         <div className="donut-row">
           <Donut slices={slices} center={{ v: ods.length ? `${Math.round(healthy / ods.length * 100)}%` : "—", k: "healthy" }} />
@@ -1567,7 +1570,12 @@ export function MockBreachRisk({ model, records, open }) {
   const scored = rows.map((r) => {
     const tgt = NOMINAL_H[r.priority] || 72;
     const ageH = (r.age_days || 0) * 24;
-    const risk = Math.max(0, Math.min(99, Math.round(100 * (ageH / tgt) - 8 + hashStr(r.key) * 16)));
+    // LOG-scaled, not linear: a linear age/target ratio saturates instantly on an aged
+    // backlog (every row pinned at 99%, which reads as broken). On a log scale a ratio of
+    // 1x lands ~52, 10x ~72, 100x ~92 — so heavily-aged work still ranks against itself.
+    const ratio = Math.max(0.05, ageH / tgt);
+    const risk = Math.max(3, Math.min(99,
+      Math.round(52 + 20 * Math.log10(ratio) + (hashStr(r.key) - 0.5) * 14)));
     return { r, risk };
   }).sort((a, b) => b.risk - a.risk).slice(0, 8);
   return (
