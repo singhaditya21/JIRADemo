@@ -467,3 +467,10 @@ ol.recs li.clickable:hover { border-left-color: var(--warn); }
 .feed-time { min-width: 74px; }
 .feed-agent { font: 700 0.66rem var(--mono); color: #fff; border-radius: 4px; padding: 0.12rem 0.36rem; min-width: 78px; text-align: center; }
 .feed-msg { flex: 1; }
+
+/* ---- at-risk queue chips + stage-flow ---- */
+.chip-row { display: flex; gap: 0.35rem; flex-wrap: wrap; margin: 0.4rem 0 0.6rem; }
+.reason-chip { font: 0.74rem var(--sans); padding: 0.22rem 0.55rem; border: 1px solid var(--rule); border-radius: 999px; background: transparent; color: var(--ink-soft); cursor: pointer; }
+.reason-chip:hover { border-color: var(--accent); color: var(--accent); }
+.reason-chip .tnum { font-weight: 700; margin-left: 0.25rem; }
+.risk-chip { display: inline-block; font: 0.68rem var(--mono); padding: 0.1rem 0.34rem; margin: 0 0.22rem 0.16rem 0; border-radius: 4px; background: var(--raised); border: 1px solid var(--warn); color: var(--warn); }

@@ -50,12 +50,24 @@ on:
         description: "Number of Salesforce Config Requests to seed (mode seed/all)"
         default: "64"
 
+# TOKEN PRIVILEGE SPLIT — one secret currently spans three privilege levels (read-only bake,
+# write-back, and this admin provisioner). The workflows already PREFER a scoped token and
+# fall back to JIRA_TOKEN, so you can split them whenever you like, with no code change:
+#   JIRA_TOKEN_RO    -> read:jira-work            (pages.yml bake)
+#   JIRA_TOKEN_RW    -> write:jira-work, no admin (sfc-writeback.yml, link-problems.yml)
+#   JIRA_TOKEN_ADMIN -> admin                     (this workflow only)
+# Mint them at id.atlassian.com/manage-profile/security/api-tokens and add them as repo
+# secrets yourself — they must never be handled in chat or committed.
+
 permissions:
   contents: read
 
 jobs:
   provision:
     runs-on: ubuntu-latest
+    # Highest-privilege path in the repo: it provisions Jira schema. Gated behind an
+    # environment so a run requires an explicit human approval.
+    environment: jira-admin
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -73,7 +85,8 @@ jobs:
         env:
           JIRA_SITE: ${{ secrets.JIRA_SITE }}
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
-          JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+          # ADMIN path — creates projects/fields/workflows. Prefers an admin-scoped token.
+          JIRA_TOKEN: ${{ secrets.JIRA_TOKEN_ADMIN || secrets.JIRA_TOKEN }}
           MODE: ${{ inputs.mode }}
           DRY_RUN: ${{ inputs.dry_run }}
           SEED_COUNT: ${{ inputs.seed_count }}

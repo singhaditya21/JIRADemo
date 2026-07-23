@@ -49,7 +49,8 @@ jobs:
         env:
           JIRA_SITE: ${{ secrets.JIRA_SITE }}
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
-          JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+          # READ-ONLY path. Prefers a read-scoped token; falls back to the single token.
+          JIRA_TOKEN: ${{ secrets.JIRA_TOKEN_RO || secrets.JIRA_TOKEN }}
           # The deployed site is world-readable, so mask named individuals in the artifact.
           # (Analyst names on this instance are synthetic, but the control belongs ON for a
           # public host — and the SFC lens now honours it too.)

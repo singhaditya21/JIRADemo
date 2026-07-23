@@ -378,6 +378,22 @@ def _request_record(raw, F, site, deploys_by_parent, now):
     rec["evidence_missing"] = missing
     rec["evidence_overclaimed"] = bool(rec["evidence_pack_claimed"] and not ready)
     rec["is_redeployed"] = _is_redeployed(tl)
+
+    # How long this request has sat in its CURRENT status — the input the stall thresholds
+    # (§5.2/§5.7) key off. Not a stored field: it is the clock since the most recent status
+    # change, falling back to Reported At for a request that has never moved (which is
+    # genuinely how long it has been in its first stage).
+    stamps = [ev["at"] for ev in tl if ev.get("at")]
+    entry = None
+    if stamps:
+        try:
+            entry = max(datetime.fromisoformat(s) for s in stamps)
+        except (TypeError, ValueError):
+            entry = None
+    entry = entry or reported
+    rec["stage_entry_at"] = _iso(entry)
+    rec["time_in_stage_h"] = (round((now - entry).total_seconds() / 3600.0, 2)
+                              if entry else None)
     return rec
 
 

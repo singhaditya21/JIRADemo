@@ -1528,6 +1528,127 @@ export function SFCOutcomes({ model, records, baseline }) {
   );
 }
 
+// ==== §5.7 stalled / at-risk queue — the one "work the room now" list ==================
+// Distinct open requests carrying ANY at-risk reason, each row tagged with its full reason
+// set. The headline is the DISTINCT union, so it is always <= the sum of the per-reason
+// counts — that relationship is stated on the panel so the two can be reconciled by eye.
+//
+// Three spec tokens do not exist on this instance and are substituted honestly rather than
+// faked: statuses "Build Blocked"/"Changes Requested" (a rejected CAB is the real analogue),
+// health "Drifted" (the vocabulary is Healthy/Degraded/Failing/Unknown), and lower-case risk.
+const STALL_H = { Intake: 24, Build: 72, Review: 48, Deploy: 24, Audit: 120 };
+const isStalled = (r) => {
+  const t = r.time_in_stage_h;
+  return t != null && t >= (STALL_H[r.stage] ?? 72);
+};
+const AT_RISK_REASONS = [
+  { k: "stalled", lab: (r) => `stalled @ ${r.stage}`, test: isStalled },
+  { k: "deploy_failed", lab: () => "deploy failed",
+    test: (r) => (r.org_deploys || []).some((d) => d.deploy_state === "Failed") || r.status === "Deploy Failed" },
+  { k: "rolled_back", lab: () => "rolled back",
+    test: (r) => (r.org_deploys || []).some((d) => d.deploy_state === "Rolled back") || r.status === "Rolled Back" },
+  { k: "cab_rejected", lab: () => "CAB rejected", test: (r) => r.cab_approval === "Rejected" },
+  { k: "evidence_gap", lab: () => "evidence incomplete",
+    test: (r) => ["Deploy", "Audit"].includes(r.stage) && !r.evidence_pack_ready },
+  { k: "health", lab: () => "config degraded",
+    test: (r) => (r.org_deploys || []).some((d) => ["Degraded", "Failing"].includes(d.config_health)) },
+  { k: "risky_stall", lab: () => "high-risk & stalled",
+    test: (r) => String(r.change_risk || "").toLowerCase() === "high" && isStalled(r) },
+];
+
+export function AtRiskQueue({ model, records, open }) {
+  // Population is "not done" — a Deploy-Failed request is exactly what belongs in this queue.
+  const pop = inWindow(records, model).filter((r) => !r.is_done);
+  const rows = pop.map((r) => ({ r, reasons: AT_RISK_REASONS.filter((x) => x.test(r)) }))
+    .filter((x) => x.reasons.length)
+    .sort((a, b) => b.reasons.length - a.reasons.length || (b.r.time_in_stage_h || 0) - (a.r.time_in_stage_h || 0));
+  const perReason = AT_RISK_REASONS.map((x) => ({ ...x, n: pop.filter(x.test).length })).filter((x) => x.n);
+  const summed = perReason.reduce((a, x) => a + x.n, 0);
+  return (
+    <div className="panel span-full">
+      <h2>Stalled / at-risk queue</h2>
+      <p className="why">Every open request carrying at least one at-risk reason — the one list to work now, worst-first. <strong>{rows.length}</strong> distinct requests across <strong>{summed}</strong> reason hits (a request can carry several, which is why the union is smaller). {records ? "" : "Loading…"} <span className="hint">Click a row.</span></p>
+      <div className="chip-row">
+        {perReason.map((x) => (
+          <button key={x.k} className="reason-chip" onClick={() => open && open({ type: "records", label: `At risk · ${x.lab({ stage: "" })}`.trim(), pred: x.test, reconcile: x.n })}>
+            {x.lab({ stage: "" }).trim()} <span className="tnum">{x.n}</span>
+          </button>))}
+      </div>
+      {records && !rows.length && <p className="why">Nothing at risk in this window.</p>}
+      {!!rows.length && (
+        <table className="mini-table">
+          <tbody>
+            {rows.slice(0, 12).map(({ r, reasons }) => (
+              <tr key={r.key} style={{ cursor: "pointer" }} onClick={() => open && open({ type: "records", label: r.key, pred: (x) => x.key === r.key })}>
+                <td className="mono">{r.key}</td>
+                <td>{r.stage}</td>
+                <td className="tnum">{r.time_in_stage_h != null ? f1(r.time_in_stage_h) + "h" : "—"}</td>
+                <td>{reasons.map((x) => <span key={x.k} className="risk-chip">{x.lab(r)}</span>)}</td>
+              </tr>))}
+          </tbody>
+        </table>
+      )}
+      {rows.length > 12 && <p className="int-note">showing the worst 12 of {rows.length}</p>}
+    </div>
+  );
+}
+
+// ==== §2.5 stage-flow Sankey — where work leaks backwards ==============================
+// sof() is the stage-of-flight classifier: SIX nodes, because `done` is a terminal distinct
+// from the record's five-bucket `stage` field. Backward ribbons are the leakage the panel
+// exists to show: review ping-pong (review→build), deploy rework (deploy→build), post-audit
+// rollback (audit→deploy).
+const SOF = { Intake: "intake", "In Build": "build", "In Review": "review",
+  "Awaiting CAB": "deploy", Deploying: "deploy", Deployed: "deploy",
+  "Deploy Failed": "deploy", "Rolled Back": "deploy", Audit: "audit",
+  Done: "done", Cancelled: "done" };
+const SOF_ORDER = ["intake", "build", "review", "deploy", "audit", "done"];
+const SOF_COLOR = { intake: "var(--muted)", build: "var(--accent)", review: "var(--ok)",
+  deploy: "var(--warn)", audit: "var(--accent-dim)", done: "var(--ok)" };
+
+export function StageSankey({ model, records, open }) {
+  const rows = inWindow(records, model);
+  const counts = {};
+  let hops = 0;
+  for (const r of rows) {
+    for (const c of (r.timeline || []).filter((x) => x.field === "status")) {
+      const f = SOF[c.from], t = SOF[c.to];
+      if (!f || !t || f === t) continue;          // same-node hops carry no flow
+      counts[f + "|" + t] = (counts[f + "|" + t] || 0) + 1;
+      hops++;
+    }
+  }
+  // A node's value is the flow through it on that side of the diagram.
+  const node = (id, side) => ({ id: side + id, label: id, color: SOF_COLOR[id],
+    value: Object.entries(counts).reduce((a, [k, v]) =>
+      a + ((side === "L" ? k.split("|")[0] : k.split("|")[1]) === id ? v : 0), 0) });
+  const left = SOF_ORDER.map((s) => node(s, "L")).filter((n) => n.value > 0);
+  const right = SOF_ORDER.map((s) => node(s, "R")).filter((n) => n.value > 0);
+  const links = Object.entries(counts).map(([k, v]) => {
+    const [f, t] = k.split("|");
+    return { from: "L" + f, to: "R" + t, value: v,
+             back: SOF_ORDER.indexOf(f) > SOF_ORDER.indexOf(t) };
+  });
+  const backward = links.filter((l) => l.back);
+  return (
+    <div className="panel span-2">
+      <h2>Stage flow &amp; leakage</h2>
+      <p className="why">Every recorded status transition as a stage-to-stage ribbon ({hops} hops). <strong>Backward</strong> ribbons are the waste: review ping-pong, deploy rework, post-audit rollback. {records ? "" : "Loading…"}</p>
+      {records && !hops && <p className="why">No stage transitions recorded in this window yet.</p>}
+      {!!hops && <Sankey left={left} right={right} links={links} w={520} h={230}
+        onPick={(l) => open && open({ type: "records", label: "Stage flow",
+          pred: (r) => (r.timeline || []).some((c) => "L" + SOF[c.from] === l.from && "R" + SOF[c.to] === l.to) })} />}
+      {!!hops && (
+        <p className="int-note">
+          {backward.length
+            ? `${backward.reduce((a, l) => a + l.value, 0)} backward hop(s): ` + backward.map((l) => `${l.from.slice(1)}→${l.to.slice(1)} ${l.value}`).join(" · ")
+            : "No backward flow recorded — nothing has been sent back for rework in this window. (Rework only appears once requests actually bounce; the seeded history is forward-only.)"}
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ==== MOCKS — clearly-badged illustrations of features that need systems we don't have ==
 // Every panel below wears a bright MOCK badge and a caption saying so. The data is either
 // a deterministic illustration or computed from REAL records but presented in a way a real

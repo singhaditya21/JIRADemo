@@ -48,10 +48,17 @@ jobs:
         env:
           JIRA_SITE: ${{ secrets.JIRA_SITE }}
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
-          JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+          # WRITE path. Prefers a write-scoped (non-admin) token.
+          JIRA_TOKEN: ${{ secrets.JIRA_TOKEN_RW || secrets.JIRA_TOKEN }}
           DRY_RUN: ${{ inputs.dry_run }}
+          WRITEBACK_DISABLED: ${{ vars.SFC_WRITEBACK_DISABLED }}
         run: |
           set -euo pipefail
+          # KILL SWITCH: set repo variable SFC_WRITEBACK_DISABLED=true to stop all writes
+          # immediately, without editing or reverting anything.
+          if [ "${WRITEBACK_DISABLED:-}" = "true" ]; then
+            echo "SFC_WRITEBACK_DISABLED=true — writeback halted by kill switch."; exit 0
+          fi
           FLAG="--dry-run"
           # A scheduled run has no inputs and is meant to refresh the model, so it APPLIES.
           # A manual run defaults to a dry rehearsal unless dry_run is explicitly falsey.

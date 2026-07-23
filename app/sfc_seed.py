@@ -183,6 +183,10 @@ def build(n, days, now, span=None):
             "is_redeployed": _is_redeployed(timeline),
             "timeline": timeline,
             "changelog_hops": si,
+            # parity with app/sfc_export: clock since the last status change. The preview's
+            # timeline carries no timestamps, so this falls back to Reported At.
+            "stage_entry_at": _iso(reported),
+            "time_in_stage_h": round(age_days * 24, 2),
             "preview": True,
         })
 

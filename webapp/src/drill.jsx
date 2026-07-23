@@ -505,7 +505,25 @@ function RecordList({ rows, total, spec, loading, onPick, xf, onRemoveFilter }) 
 }
 
 function RecordDetail({ record, onBack, onPrev, onNext, pos }) {
-  const fields = [
+  const sfc = isSfcRow(record);
+  // A single SFC record used to render the OPS field list, which is almost entirely null on
+  // a config request (no tier/SLA/KB/reopen) — so the drawer showed nothing about the very
+  // thing being drilled. These are the fields that actually describe one.
+  const fields = (sfc ? [
+    ["Status", record.status], ["Stage", record.stage], ["Squad", record.tower],
+    ["Priority", record.priority], ["Change risk", record.change_risk],
+    ["CAB approval", record.cab_approval], ["Deploy roll-up", record.deploy_rollup],
+    ["Target orgs", (record.target_orgs || []).join(", ")],
+    ["Components", (record.config_component_type || []).join(", ")],
+    ["Package", record.package_ref], ["Reviewer", record.l2_analyst],
+    ["Reported", record.reported_at ? new Date(record.reported_at).toLocaleString() : null],
+    ["Age (days)", record.age_days != null ? Math.round(record.age_days) : null],
+    ["Time in stage (h)", record.time_in_stage_h != null ? Math.round(record.time_in_stage_h) : null],
+    ["Redeployed", record.is_redeployed ? "yes — shipped again after a failure" : null],
+    ["Evidence pack", record.evidence_pack_ready ? "ready (computed)"
+      : (record.evidence_missing || []).length ? "NOT ready — " + record.evidence_missing.join("; ") : null],
+    ["Jira claims", record.evidence_overclaimed ? "⚠ asserts ready without the evidence" : null],
+  ] : [
     ["Type", record.issue_type], ["Status", record.status], ["Tier", record.tier],
     ["Tower", record.tower], ["Priority", record.priority], ["Impact", record.impact],
     ["Urgency", record.urgency], ["Channel", record.intake],
@@ -515,7 +533,7 @@ function RecordDetail({ record, onBack, onPrev, onNext, pos }) {
     ["Response SLA", record.response_sla], ["Resolution SLA", record.resolution_sla],
     ["Escalation reason", record.escalation_reason], ["KB checked", record.kb_checked],
     ["Reopened", record.reopened], ["Root cause", record.root_cause], ["Resolution", record.resolution_code],
-  ].filter(([, v]) => v != null && v !== "");
+  ]).filter(([, v]) => v != null && v !== "");
   const hops = (record.timeline || []).filter((c) => c.field === "status");
   const path = hops.length ? [hops[0].from, ...hops.map((h) => h.to)].filter(Boolean) : [];
   const waitHops = hops.filter((c) => rdTier(c.to) === "wait").length;
@@ -531,6 +549,19 @@ function RecordDetail({ record, onBack, onPrev, onNext, pos }) {
         </span>
       </div>
       <div className="rd-sum">{record.summary}</div>
+      {sfc && !!(record.org_deploys || []).length && (
+        <table className="mini-table" style={{ margin: "0.4rem 0" }}>
+          <tbody>
+            <tr><td className="int-note">org</td><td className="int-note">deploy</td><td className="int-note">health</td><td className="int-note">source</td></tr>
+            {record.org_deploys.map((d, i) => (
+              <tr key={i}>
+                <td>{d.org}</td><td>{d.deploy_state}</td>
+                <td>{d.config_health}{d.stale ? " (stale)" : ""}</td>
+                <td className="int-note">{d.source}</td>
+              </tr>))}
+          </tbody>
+        </table>
+      )}
       <div className="sla-clock">
         <span className="sc-lab">SLA clock</span>
         <span className={"sc-state " + clock}>{clock}</span>

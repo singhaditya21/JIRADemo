@@ -304,3 +304,31 @@ def test_preview_invariants_are_all_present():
     model, _ = S.build(64, 180, NOW, span=180)
     assert len(model["invariants"]) >= 7
     assert all("text" in i and "ok" in i for i in model["invariants"])
+
+
+# ---------------------------------------------------------------------------
+# time_in_stage — the input the §5.7 stall thresholds key off
+# ---------------------------------------------------------------------------
+
+def test_time_in_stage_uses_the_most_recent_status_change():
+    tl = [{"at": (NOW - timedelta(hours=50)).isoformat(), "field": "status", "from": "Intake", "to": "In Build"},
+          {"at": (NOW - timedelta(hours=5)).isoformat(), "field": "status", "from": "In Build", "to": "In Review"}]
+    stamps = [e["at"] for e in tl if e.get("at")]
+    entry = max(datetime.fromisoformat(s) for s in stamps)
+    assert round((NOW - entry).total_seconds() / 3600.0) == 5
+
+
+def test_preview_records_carry_time_in_stage():
+    _m, recs = S.build(8, 180, NOW, span=180)
+    assert all(r.get("time_in_stage_h") is not None for r in recs)
+    assert all(r.get("stage_entry_at") for r in recs)
+
+
+def test_time_in_stage_falls_back_to_reported_for_a_request_that_never_moved():
+    """A request with no status change has been in its first stage since it was reported —
+    that IS its time in stage, so the fallback is honest rather than a null hole."""
+    _m, recs = S.build(64, 180, NOW, span=180)
+    never_moved = [r for r in recs if r["changelog_hops"] == 0]
+    assert never_moved
+    for r in never_moved:
+        assert abs(r["time_in_stage_h"] - r["age_days"] * 24) < 0.5

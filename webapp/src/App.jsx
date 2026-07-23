@@ -15,7 +15,7 @@ import { KpiStrip, PairingPanel, Analysts, KBGap, Towers, Intake, Ageing,
   HeadlineBanner, PilotProgress, AtRiskToday, RuleHealth, DeflectionFunnel,
   DeliveryPreviewBanner, SFCKpi, StageFunnel, DeployMatrix, ConfigHealthBoard, AgentLedger, CABGate,
   SFCTrend, DeployFailureByOrg, SFCLeadWip, SFCOutcomes,
-  AgentWorkload, AgentHandoff, MockAgentFeed,
+  AgentWorkload, AgentHandoff, MockAgentFeed, AtRiskQueue, StageSankey,
   MockNlqAnswer, MockCsatFeed, MockBreachRisk, MockMultiInstance, MockOutcomes18mo } from "./panels.jsx";
 import { Drawer } from "./drill.jsx";
 
@@ -46,6 +46,8 @@ function lensPanels(lens, project, model, open, records, history, baseline) {
     <AgentHandoff key="ah" {...R} />,
     <AgentLedger key="led" {...R} />,
     <MockAgentFeed key="maf" {...R} />,
+    <AtRiskQueue key="arq" {...R} />,
+    <StageSankey key="ssk" {...R} />,
     <DeployFailureByOrg key="dfo" {...R} />,
     <SFCLeadWip key="lw" {...R} />,
     <SFCTrend key="strend" history={history} />,
