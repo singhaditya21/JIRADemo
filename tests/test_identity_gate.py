@@ -24,6 +24,16 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import check_no_identity as G
 
+# Assembled at import time so this FILE contains no tenant-shaped literal of its own. The
+# gate's --tracked mode scans every tracked file, so a fixture hostname written out in full
+# fails the very check it exists to test — which is exactly what happened in CI the first
+# time, and only in CI, because locally the file was not yet `git add`ed and therefore not
+# yet tracked. The test became load-bearing the moment it was committed.
+# Interpolated, not concatenated. Splitting the subdomain is not enough: the tail left behind
+# is still host-shaped and trips the pattern on its own. The VENDOR portion has to be the part
+# broken up, so no complete tenant hostname exists anywhere in this file's source.
+REAL_TENANT = "realcorp.%s.net" % "atlassian"
+
 
 def write(tmp_path, name, text):
     p = tmp_path / name
@@ -79,9 +89,9 @@ def test_every_office_container_type_is_opened(tmp_path, ext):
 # --- tenants: a subdomain identifies, the bare vendor domain does not -------------------
 
 def test_a_real_tenant_host_is_reported(tmp_path):
-    f = write(tmp_path, "a.json", '{"site": "https://realcorp.atlassian.net"}')
+    f = write(tmp_path, "a.json", '{"site": "https://%s"}' % REAL_TENANT)
     hits = G.scan([f], [])
-    assert len(hits) == 1 and "realcorp.atlassian.net" in hits[0][1]
+    assert len(hits) == 1 and REAL_TENANT in hits[0][1]
 
 
 @pytest.mark.parametrize("host", ["your-site", "acme", "example", "your-tenant"])
@@ -97,11 +107,25 @@ def test_the_bare_vendor_domain_identifies_nobody(tmp_path):
     assert G.scan([f], []) == []
 
 
+@pytest.mark.parametrize("label", ["%s", "{host}", "x", "ab"])
+def test_a_format_placeholder_is_not_a_tenant(tmp_path, label):
+    # Source that BUILDS a hostname is not source that CONTAINS one. Without a minimum label
+    # length, `%s.atlassian.net` reads as the tenant "s" and the check fires on its own tests.
+    f = write(tmp_path, "t.py", 'url = "https://%s.atlassian.net/browse/X"' % label)
+    assert G.scan([f], []) == []
+
+
+def test_a_three_character_tenant_still_reports(tmp_path):
+    # The minimum must not become a hiding place: the shortest real site name still reports.
+    f = write(tmp_path, "a.json", '{"site": "https://abc.%s.net"}' % "atlassian")
+    assert G.scan([f], []) != []
+
+
 def test_a_placeholder_does_not_mask_a_real_tenant_in_the_same_file(tmp_path):
     # The old scan stopped at the first match per file, so a benign early hit hid a real one.
-    f = write(tmp_path, "a.md", "use your-site.atlassian.net\n...\nbuilt on realcorp.atlassian.net\n")
+    f = write(tmp_path, "a.md", "use your-site.atlassian.net\n...\nbuilt on %s\n" % REAL_TENANT)
     hits = G.scan([f], [])
-    assert len(hits) == 1 and "realcorp" in hits[0][1]
+    assert len(hits) == 1 and REAL_TENANT in hits[0][1]
 
 
 # --- identifiers are derived, never written down ---------------------------------------

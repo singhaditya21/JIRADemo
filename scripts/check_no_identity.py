@@ -43,7 +43,10 @@ from pathlib import Path
 # this is a pattern, not a literal: `<tenant>.atlassian.net` reports, a lone `atlassian.net`
 # (in prose, an assertion, or this file) does not. Written as a pattern for the second reason
 # too — a literal example here would be the very leak the script exists to prevent.
-TENANT_RE = re.compile(r"\b([a-z0-9][a-z0-9-]*)\.atlassian\.net", re.I)
+# The label must be at least 3 characters, which is Atlassian's own minimum for a site name.
+# That is not a fudge to quieten the check — it is what stops a format placeholder (`%s.`,
+# `{host}.`) or a truncated fragment from being read as somebody's tenant.
+TENANT_RE = re.compile(r"\b([a-z0-9][a-z0-9-]{2,})\.atlassian\.net", re.I)
 
 # Tokens that turn up in author metadata but identify nobody.
 NOISE = {"bot", "github", "actions", "none", "unknown", "root", "admin", "user", "runner"}
