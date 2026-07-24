@@ -20,6 +20,7 @@ same panels render unchanged once real data flows:
 import argparse
 import hashlib
 import json
+import os
 import random
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -59,6 +60,18 @@ HEALTH = ["Healthy", "Degraded", "Failing", "Unknown"]
 
 def _iso(dt):
     return dt.isoformat() if dt else None
+
+
+def _site():
+    """Jira base URL for browse links — NEVER hardcode a tenant here.
+
+    The live bake already derives every link from the JIRA_SITE secret (app/sfc_export uses
+    j.site), so the whole demo re-points at a different Atlassian site by changing one secret.
+    This fallback path was the last place a specific tenant was baked in, which made the
+    deployed JSON carry one org's hostname into every record. Reads JIRA_SITE, falling back to
+    a neutral placeholder so a preview build carries no tenant identity at all.
+    """
+    return os.environ.get("JIRA_SITE", "https://jira.example.com").rstrip("/")
 
 
 def build(n, days, now, span=None):
@@ -163,7 +176,7 @@ def build(n, days, now, span=None):
             org_deploys, target, stage, si)
 
         records.append({
-            "key": key, "url": f"https://singhaditya21.atlassian.net/browse/{key}",
+            "key": key, "url": f"{_site()}/browse/{key}",
             "summary": f"{rnd.choice(['Add', 'Update', 'Refactor', 'Retire', 'Extend'])} {rnd.choice(comps).lower()} — {squad}",
             "issue_type": "Salesforce Config Request", "status": status, "stage": stage,
             "status_category": "done" if is_done else "indeterminate" if not is_open else "new" if stage == "Intake" else "indeterminate",
