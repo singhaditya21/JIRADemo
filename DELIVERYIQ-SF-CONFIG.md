@@ -115,7 +115,7 @@ Each `SCR` record carries pre-computed booleans so a client-side filter agrees w
 
 *Intent, ownership, risk, artifact refs, CAB decisions, timestamps and evidence-link presence are **REAL from Jira**. Per-org **deploy state** and **config health** are **only as real as whatever writes them** — REAL when the CI/CD pipeline and a health probe write back into these fields, MODELLED (or `Unknown`/seeded) otherwise — and the tower never reads Salesforce live. `Deploy State Source`, `Config Health Checked At`, and the `deploy_state_is_real` / `health_is_fresh` booleans exist precisely so the lens can state, on-screen and per record, which of the two it is.*
 
-Relevant grounding files (all absolute): `/Users/adityasingh/PersonalWork/JIRADemo/SCHEMA.md` (the 20 field ids reused), `/Users/adityasingh/PersonalWork/JIRADemo/shared/domain.py` (`SELECT_FIELDS`, Tower/Priority model), `/Users/adityasingh/PersonalWork/JIRADemo/app/store.py` `build_issue` (population-boolean pattern this section mirrors), `/Users/adityasingh/PersonalWork/JIRADemo/CONTROL-TOWER.md` §1 (global-context reuse and the ITSM Change/approval precedent).
+Relevant grounding files (all absolute): `SCHEMA.md` (the 20 field ids reused), `shared/domain.py` (`SELECT_FIELDS`, Tower/Priority model), `app/store.py` `build_issue` (population-boolean pattern this section mirrors), `CONTROL-TOWER.md` §1 (global-context reuse and the ITSM Change/approval precedent).
 
 ## 2. Lifecycle → Jira workflow (the five stages as statuses)
 
@@ -194,7 +194,7 @@ The point of putting stage in the *status* is that most of the tower is stage-ag
 - **REAL only if a writer exists (else MODELLED, must be labelled):** per-org `Deploy State`, `Test Result`/`Coverage %`/`Lint` (need CI/CD writeback), `Config Health` (needs a monitor/smoke writeback). Each carries a `*_Source` enum so a panel splits evidence-backed from asserted.
 - **MODELLED / proxy (never dressed as live):** any deploy or health bit whose `*_Source = manual/unset`; the tower states "from Jira field `<name>`, source `<source>`, as of `<checked-at>`" and never implies a live Salesforce read.
 
-Files inspected to ground this section (all absolute): `/Users/adityasingh/PersonalWork/JIRADemo/shared/domain.py` (STATUSES, statusCategory bridge, field-by-NAME + select-field conventions), `/Users/adityasingh/PersonalWork/JIRADemo/webapp/src/panels.jsx` (`tof()` at line 789, `TierSankey`/`TierFlow`, C4 gate-bypass `crossed()` at ~1740, record `timeline` shape), `/Users/adityasingh/PersonalWork/JIRADemo/app/analytics.py` (`ageing`/`ageing_by_status`, `Reported At` time axis, closed_set/Cancelled wart), and `/Users/adityasingh/PersonalWork/JIRADemo/CONTROL-TOWER.md` + `/Users/adityasingh/PersonalWork/JIRADemo/ROADMAP.md` (OPS/ITSM lens model, Theme D `[NO-ITSM]` suppression).
+Files inspected to ground this section (all absolute): `shared/domain.py` (STATUSES, statusCategory bridge, field-by-NAME + select-field conventions), `webapp/src/panels.jsx` (`tof()` at line 789, `TierSankey`/`TierFlow`, C4 gate-bypass `crossed()` at ~1740, record `timeline` shape), `app/analytics.py` (`ageing`/`ageing_by_status`, `Reported At` time axis, closed_set/Cancelled wart), and `CONTROL-TOWER.md` + `ROADMAP.md` (OPS/ITSM lens model, Theme D `[NO-ITSM]` suppression).
 
 I have enough to match the repo's voice, field conventions (`Title Case name → customfield id resolved at bake`), record population-boolean style (`is_*`, `*_gap`, `counts_as_*`), and the four-layer-drill / reconciliation discipline. Here is my section.
 
@@ -581,11 +581,11 @@ Derived hours mirror `export_pages._h(...)`: `triage_latency_h`, `build_cycle_h`
 ---
 
 Files I read to ground this section (all absolute):
-- `/Users/adityasingh/PersonalWork/JIRADemo/app/export_pages.py` — `_freeze_baseline`, `_append_history`, `_history_point`, `_record` timing derivations (`escalation_latency_h`, `l2_dwell_h`, `ola_handoff_h`, `ttr_h`).
-- `/Users/adityasingh/PersonalWork/JIRADemo/app/metrics.py` and `/Users/adityasingh/PersonalWork/JIRADemo/app/analytics.py` — num/den reconciliation, `rate_point`/`MIN_WEEK_DENOM`, `ftr_vs_reopen` paired-panel honesty, weekly cohort series.
-- `/Users/adityasingh/PersonalWork/JIRADemo/SCHEMA.md` — the four datetime timeline fields and the `Reported At`-not-`created` rule I mirrored.
-- `/Users/adityasingh/PersonalWork/JIRADemo/ARCHITECTURE.md` — resolve-by-name rule, two-front-ends-one-model.
-- `/Users/adityasingh/PersonalWork/JIRADemo/ROADMAP.md` §6.3 (baseline→target freeze) and `/Users/adityasingh/PersonalWork/JIRADemo/CLAIMS.md` #146/#159 (snapshot-history + frozen-baseline verification) and `/Users/adityasingh/PersonalWork/JIRADemo/.github/workflows/pages.yml` (commit-back cadence).
+- `app/export_pages.py` — `_freeze_baseline`, `_append_history`, `_history_point`, `_record` timing derivations (`escalation_latency_h`, `l2_dwell_h`, `ola_handoff_h`, `ttr_h`).
+- `app/metrics.py` and `app/analytics.py` — num/den reconciliation, `rate_point`/`MIN_WEEK_DENOM`, `ftr_vs_reopen` paired-panel honesty, weekly cohort series.
+- `SCHEMA.md` — the four datetime timeline fields and the `Reported At`-not-`created` rule I mirrored.
+- `ARCHITECTURE.md` — resolve-by-name rule, two-front-ends-one-model.
+- `ROADMAP.md` §6.3 (baseline→target freeze) and `CLAIMS.md` #146/#159 (snapshot-history + frozen-baseline verification) and `.github/workflows/pages.yml` (commit-back cadence).
 
 I have the repo's voice and conventions. Writing Section 7 now.
 

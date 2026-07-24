@@ -42,7 +42,7 @@ Most of the setup is already done:
 **The one remaining step — add the token yourself** (never handled in chat or committed):
 
 ```bash
-gh secret set JIRA_TOKEN --repo singhaditya21/JIRADemo    # paste when prompted, not echoed
+gh secret set JIRA_TOKEN    # paste when prompted, not echoed
 ```
 Get one at id.atlassian.com → API tokens. Then trigger a build (below); it publishes at the
 URL above. Until the token is set, the build stops cleanly at "Missing environment variables:
@@ -53,12 +53,12 @@ URL above. Until the token is set, the build stops cleanly at "Missing environme
 Push to `main` (the workflow also runs on every push), or trigger it manually:
 
 ```bash
-gh workflow run "Deploy control tower to GitHub Pages" --repo singhaditya21/JIRADemo
+gh workflow run "Deploy control tower to GitHub Pages"
 ```
 
 The site publishes at:
 
-**https://singhaditya21.github.io/JIRADemo/**
+**https://your-org.github.io/JIRADemo/**
 
 Watch the run under the repo's **Actions** tab; the deploy job prints the URL.
 

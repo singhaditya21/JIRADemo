@@ -489,7 +489,9 @@ function RecordList({ rows, total, spec, loading, onPick, xf, onRemoveFilter }) 
                 <tr key={r.key} className={"clickable" + (spec.hi && spec.hi(r) ? " hi" : "")} onClick={() => onPick(r)} style={{ height: ROW_H }}>
                   {cols.map((c) => (
                     <td key={c.k} className={(c.num ? "num " : "") + (c.cls || "") + (c.grow ? " grow" : "")}>
-                      {c.link ? <a href={r.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{r.key}</a>
+                      {/* The bake omits `url` when DEMO_ANONYMISE is on, so the artifact carries no Jira
+                          host. Degrade to plain text rather than rendering a dead anchor. */}
+                      {c.link ? (r.url ? <a href={r.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{r.key}</a> : r.key)
                         : c.fmt ? c.fmt(r[c.k]) : (r[c.k] ?? "")}
                     </td>
                   ))}
@@ -586,7 +588,9 @@ function RecordDetail({ record, onBack, onPrev, onNext, pos }) {
           </ol>
         </>
       )}
-      <a className="drawer-jira inline" href={record.url} target="_blank" rel="noreferrer">Open {record.key} in Jira ↗</a>
+      {record.url && (
+        <a className="drawer-jira inline" href={record.url} target="_blank" rel="noreferrer">Open {record.key} in Jira ↗</a>
+      )}
     </div>
   );
 }
@@ -675,7 +679,7 @@ export function Drawer({ drill, model, records, onClose }) {
         {!sel && clause && (
           <div className="jql-preview"><span className="jql-lab">JQL</span><code>{clause}</code></div>
         )}
-        {!sel && clause && (
+        {!sel && clause && model.site && (
           <a className="drawer-jira" href={jira(model.site, clause)} target="_blank" rel="noreferrer">
             Open all matching issues in Jira ↗
           </a>

@@ -1,6 +1,6 @@
 # Control tower — what exists on the instance
 
-Two complete L1/L2 support towers are live on `singhaditya21.atlassian.net`, built from the
+Two complete L1/L2 support towers are live on `your-site.atlassian.net`, built from the
 same design in `PLAN.md`. Every number below was read from the live instance on
 **2026-07-20** by JQL count or the queue API, not carried over from a build log.
 
@@ -46,7 +46,7 @@ rather than deleting the scheme.
 
 ## 2. `OPS` — Jira Software
 
-**Open:** https://singhaditya21.atlassian.net/browse/OPS
+**Open:** https://your-site.atlassian.net/browse/OPS
 
 | Metric | Live value | What it proves |
 |---|---|---|
@@ -73,26 +73,26 @@ in `OPS` it is genuinely in the changelog.
 
 | Filter | URL |
 |---|---|
-| L1 queue (open) | https://singhaditya21.atlassian.net/issues/?filter=10035 |
-| L2 queue (open) | https://singhaditya21.atlassian.net/issues/?filter=10036 |
-| Major incidents (Impact High + Urgency High) | https://singhaditya21.atlassian.net/issues/?filter=10037 |
-| SLA breached (resolution) | https://singhaditya21.atlassian.net/issues/?filter=10038 |
-| SLA paused (customer or vendor) | https://singhaditya21.atlassian.net/issues/?filter=10039 |
-| Aged backlog over 14 days | https://singhaditya21.atlassian.net/issues/?filter=10040 |
-| Reopened tickets | https://singhaditya21.atlassian.net/issues/?filter=10041 |
-| Escalated in last 30 days | https://singhaditya21.atlassian.net/issues/?filter=10042 |
-| **Escalated with no KB article found** | https://singhaditya21.atlassian.net/issues/?filter=10043 |
-| Intake via chat (shadow support) | https://singhaditya21.atlassian.net/issues/?filter=10044 |
-| L2: End User Computing | https://singhaditya21.atlassian.net/issues/?filter=10045 |
-| L2: Enterprise Applications | https://singhaditya21.atlassian.net/issues/?filter=10046 |
-| L2: Network & Connectivity | https://singhaditya21.atlassian.net/issues/?filter=10047 |
-| L2: Database | https://singhaditya21.atlassian.net/issues/?filter=10048 |
-| L2: Compute & Storage | https://singhaditya21.atlassian.net/issues/?filter=10049 |
-| L2: Cloud & Security | https://singhaditya21.atlassian.net/issues/?filter=10050 |
-| P1 at risk | https://singhaditya21.atlassian.net/issues/?filter=10051 |
-| P2 at risk | https://singhaditya21.atlassian.net/issues/?filter=10052 |
-| P3 at risk ⚠️ stale threshold | https://singhaditya21.atlassian.net/issues/?filter=10053 |
-| P4 at risk ⚠️ stale threshold | https://singhaditya21.atlassian.net/issues/?filter=10054 |
+| L1 queue (open) | https://your-site.atlassian.net/issues/?filter=10035 |
+| L2 queue (open) | https://your-site.atlassian.net/issues/?filter=10036 |
+| Major incidents (Impact High + Urgency High) | https://your-site.atlassian.net/issues/?filter=10037 |
+| SLA breached (resolution) | https://your-site.atlassian.net/issues/?filter=10038 |
+| SLA paused (customer or vendor) | https://your-site.atlassian.net/issues/?filter=10039 |
+| Aged backlog over 14 days | https://your-site.atlassian.net/issues/?filter=10040 |
+| Reopened tickets | https://your-site.atlassian.net/issues/?filter=10041 |
+| Escalated in last 30 days | https://your-site.atlassian.net/issues/?filter=10042 |
+| **Escalated with no KB article found** | https://your-site.atlassian.net/issues/?filter=10043 |
+| Intake via chat (shadow support) | https://your-site.atlassian.net/issues/?filter=10044 |
+| L2: End User Computing | https://your-site.atlassian.net/issues/?filter=10045 |
+| L2: Enterprise Applications | https://your-site.atlassian.net/issues/?filter=10046 |
+| L2: Network & Connectivity | https://your-site.atlassian.net/issues/?filter=10047 |
+| L2: Database | https://your-site.atlassian.net/issues/?filter=10048 |
+| L2: Compute & Storage | https://your-site.atlassian.net/issues/?filter=10049 |
+| L2: Cloud & Security | https://your-site.atlassian.net/issues/?filter=10050 |
+| P1 at risk | https://your-site.atlassian.net/issues/?filter=10051 |
+| P2 at risk | https://your-site.atlassian.net/issues/?filter=10052 |
+| P3 at risk ⚠️ stale threshold | https://your-site.atlassian.net/issues/?filter=10053 |
+| P4 at risk ⚠️ stale threshold | https://your-site.atlassian.net/issues/?filter=10054 |
 
 ### ⚠️ Two known defects in `OPS`
 
@@ -133,14 +133,14 @@ never passed through the `Escalated to L2` status — a small version of the `IT
 
 ## 3. `ITSM` — Jira Service Management
 
-**Open:** https://singhaditya21.atlassian.net/browse/ITSM
+**Open:** https://your-site.atlassian.net/browse/ITSM
 
 | Surface | URL |
 |---|---|
-| Project | https://singhaditya21.atlassian.net/browse/ITSM |
-| **Agent queues** (19, all non-empty) | https://singhaditya21.atlassian.net/jira/servicedesk/projects/ITSM/queues |
-| **Dashboard** (11 bound gadgets) | https://singhaditya21.atlassian.net/jira/dashboards/10035 |
-| **Customer portal** (17 request types) | https://singhaditya21.atlassian.net/servicedesk/customer/portal/8 |
+| Project | https://your-site.atlassian.net/browse/ITSM |
+| **Agent queues** (19, all non-empty) | https://your-site.atlassian.net/jira/servicedesk/projects/ITSM/queues |
+| **Dashboard** (11 bound gadgets) | https://your-site.atlassian.net/jira/dashboards/10035 |
+| **Customer portal** (17 request types) | https://your-site.atlassian.net/servicedesk/customer/portal/8 |
 
 ### Agent queues — live counts
 
@@ -184,7 +184,7 @@ filters and the distributions above were re-read from the live instance afterwar
 
 Filters `10064`–`10083` mirror the `OPS` set with `ITSM -` names, plus two added during
 repair: `10084` (all issues, project-wide) and `10085` (all open work). URL pattern
-`https://singhaditya21.atlassian.net/issues/?filter=NNNNN`. Full id map in
+`https://your-site.atlassian.net/issues/?filter=NNNNN`. Full id map in
 `jira_config/state/.jsm_state.json`.
 
 ### SLA in `ITSM`

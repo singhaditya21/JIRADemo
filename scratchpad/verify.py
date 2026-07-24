@@ -1,7 +1,7 @@
 import json, sys
 from collections import Counter, defaultdict
 
-with open('/Users/adityasingh/PersonalWork/JIRADemo/scratchpad/ITSM-records.json') as f:
+with open('scratchpad/ITSM-records.json') as f:
     data = json.load(f)
 
 records = data['records']

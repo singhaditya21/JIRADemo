@@ -1,6 +1,6 @@
 # Building an L1/L2 Support Tower on Jira
 
-**A one-page brief** · Aditya Singh · 2026-07-20
+**A one-page brief** · Platform Engineering · 2026-07-20
 
 ---
 

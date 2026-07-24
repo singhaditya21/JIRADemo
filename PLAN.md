@@ -1,7 +1,7 @@
 # L1/L2 Tower Ticket Management System — Build Plan
 
-**Instance:** `singhaditya21.atlassian.net`
-**Account:** Aditya Singh (site admin — `ADMINISTER`, `CREATE_PROJECT` all true)
+**Instance:** `your-site.atlassian.net`
+**Account:** Platform Engineering (site admin — `ADMINISTER`, `CREATE_PROJECT` all true)
 **Date:** 2026-07-20
 
 ---

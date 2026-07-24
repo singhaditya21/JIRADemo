@@ -2,7 +2,7 @@
 
 *A tier-aware, escalation-aware intelligence layer for the people who run an L1/L2 support
 tower. Grounded in the live instance — `OPS` (Jira Software, 420 issues, 171 escalated) and
-`ITSM` (Jira Service Management, 421 issues) on `singhaditya21.atlassian.net`, 90-day window,
+`ITSM` (Jira Service Management, 421 issues) on `your-site.atlassian.net`, 90-day window,
 baked 2026-07-21. Every number below is measured, not aspired.*
 
 ---
