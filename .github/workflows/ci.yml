@@ -25,6 +25,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history: the identity check derives whom to scrub from git's own author
+          # metadata, and a depth-1 checkout would show it only the tip commit's author.
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -34,6 +38,14 @@ jobs:
         run: |
           DEMO_ANONYMISE=1 python3 -m app.sfc_seed --out /tmp/anon --n 20
           python3 scripts/check_no_identity.py /tmp/anon
+
+      - name: No tracked file carries identity
+        # The repo is PUBLIC, so every tracked file is as readable as the deployed site — but
+        # until now only the built artifact was checked. A tracked .pptx sat in the repo with
+        # the real name and tenant on its title slide, downloadable unauthenticated, because
+        # the gate scanned a fixed list of text extensions and never opened it. This scans
+        # every tracked file including archives, so the repo cannot drift back.
+        run: python3 scripts/check_no_identity.py --tracked
 
   frontend:
     runs-on: ubuntu-latest
