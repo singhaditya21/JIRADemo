@@ -132,12 +132,41 @@ def _ts(dt):
     return dt.timestamp() if dt is not None else None
 
 
+# Changelog fields whose from/to values are PEOPLE, not enum values. A status or resolution
+# hop is safe to publish verbatim; an assignee hop carries a real display name. These leaked
+# past the analyst masking because the alias map was built from the l1/l2 fields only, and the
+# account that seeded the instance never appears there — so `{"field":"assignee","from":"<a
+# real person>"}` shipped in world-readable JSON. Compared lowercased: Jira renders custom
+# person fields with their display label ("Request participants"), not a stable id.
+PERSON_CHANGE_FIELDS = {"assignee", "reporter", "creator", "request participants",
+                        "watchers", "approvers", "request type"}
+
+
 def _pseudonymise_map(issues):
     """Stable Analyst NN alias per real name — for a public host where the model would
     otherwise expose named individuals' escalation rates (roadmap: privacy). Off by default
-    because this instance's seed names are synthetic; flip PSEUDONYMISE_ANALYSTS for real data."""
-    names = sorted({n for i in issues for n in (i.l1_analyst, i.l2_analyst) if n})
-    return {n: f"Analyst {k + 1:02d}" for k, n in enumerate(names)}
+    because this instance's seed names are synthetic; flip PSEUDONYMISE_ANALYSTS for real data.
+
+    Covers the changelog too: assignee/reporter hops name people who may never hold an
+    l1/l2 slot (the admin account that seeded the project, most obviously)."""
+    names = {n for i in issues for n in (i.l1_analyst, i.l2_analyst) if n}
+    names |= {v for i in issues for c in (i.changelog or ())
+              if (c.field or "").lower() in PERSON_CHANGE_FIELDS
+              for v in (c.frm, c.to) if v}
+    return {n: f"Analyst {k + 1:02d}" for k, n in enumerate(sorted(names))}
+
+
+def _mask_change(c, alias):
+    """One changelog entry, with person-valued endpoints replaced by their alias. The fallback
+    is deliberately a constant and NOT the original value: a name the map somehow missed must
+    still not reach the artifact — losing which person it was beats publishing who they are."""
+    frm, to = c.frm, c.to
+    # `alias is not None`, not `if alias`: an EMPTY map means "pseudonymising, found no names"
+    # and must still fail closed. Only alias=None — pseudonymisation off — passes names through.
+    if alias is not None and (c.field or "").lower() in PERSON_CHANGE_FIELDS:
+        frm = alias.get(frm, "Analyst") if frm else frm
+        to = alias.get(to, "Analyst") if to else to
+    return {"at": c.at.isoformat() if c.at else None, "field": c.field, "from": frm, "to": to}
 
 
 def _record(issue, alias):
@@ -161,8 +190,7 @@ def _record(issue, alias):
     r["links"] = issue.links or []                      # issue links (Problem/Incident etc.)
     cl = issue.changelog or ()
     r["changelog_hops"] = len(cl)
-    r["timeline"] = [{"at": c.at.isoformat() if c.at else None,
-                      "field": c.field, "from": c.frm, "to": c.to} for c in cl]
+    r["timeline"] = [_mask_change(c, alias) for c in cl]
     return r
 
 
@@ -225,7 +253,11 @@ def export(out_dir, day_windows):
     require_env()                                     # clear message if a secret is missing
     out_dir.mkdir(parents=True, exist_ok=True)
     generated_at = datetime.now(timezone.utc).isoformat()
-    pseudo = os.environ.get("PSEUDONYMISE_ANALYSTS", "").lower() in ("1", "true", "yes")
+    # Anonymising IMPLIES pseudonymising. Stripping the tenant hostname while still publishing
+    # who worked each ticket would be a half-measure that reads as private but isn't, so the
+    # weaker flag cannot be selected on its own.
+    pseudo = (os.environ.get("PSEUDONYMISE_ANALYSTS", "").lower() in ("1", "true", "yes")
+              or anonymised())
     j = Jira()
     F = FIELDS.resolve(j)
 

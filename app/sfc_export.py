@@ -630,14 +630,20 @@ def fetch_sfc_records(j, now=None):
     # Tenant anonymisation for a shared build — see app.export_pages.anonymised(). The URL is
     # the only field carrying the Jira host; dropping it makes the artifact host-neutral and
     # the drawer renders the key as plain text instead of a dead link.
-    if os.environ.get("DEMO_ANONYMISE", "").lower() in ("1", "true", "yes"):
+    anon = os.environ.get("DEMO_ANONYMISE", "").lower() in ("1", "true", "yes")
+    if anon:
         for r in records:
             r["url"] = None
 
     # PRIVACY: app/export_pages honours PSEUDONYMISE_ANALYSTS for OPS/ITSM, but the SFC bake
     # was writing the named reviewer (l2_analyst) verbatim into a world-readable artifact —
     # the lens bypassed the repo's own control. Apply the same masking here.
-    if os.environ.get("PSEUDONYMISE_ANALYSTS", "").lower() in ("1", "true", "yes"):
+    #
+    # `or anon`, matching export_pages: anonymising implies pseudonymising, so nobody can strip
+    # the tenant host and still publish who reviewed each request. Note the SFC timeline needs
+    # no masking of its own — _timeline() keeps only status hops, so a person's name has no
+    # route into it (the OPS/ITSM exporter keeps every field, which is where that leak was).
+    if os.environ.get("PSEUDONYMISE_ANALYSTS", "").lower() in ("1", "true", "yes") or anon:
         names = sorted({r["l2_analyst"] for r in records if r.get("l2_analyst")})
         alias = {n: "Reviewer %02d" % (k + 1) for k, n in enumerate(names)}
         for r in records:

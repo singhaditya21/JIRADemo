@@ -151,6 +151,16 @@ describe("agent map + handoffs", () => {
     expect(agentHandoffs([r])).toEqual({
       "Build→Compliance": 1, "Compliance→Coordination": 1, "Coordination→Compliance": 1 });
   });
+
+  test("non-status changes are not handoffs", () => {
+    // agentOf() falls back to "Build" for anything unrecognised, so an unfiltered walk would
+    // read an assignee or resolution change as a real handoff into Build.
+    const r = rec({ timeline: [
+      hop("Intake", "In Review"),
+      { at: null, field: "assignee", from: "Analyst 02", to: null },
+      { at: null, field: "resolution", from: null, to: "Done" }] });
+    expect(agentHandoffs([r])).toEqual({ "Build→Compliance": 1 });
+  });
 });
 
 describe("stage-of-flight flow", () => {
