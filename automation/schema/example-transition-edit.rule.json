@@ -1,6 +1,6 @@
 {
  "id": 1163865,
- "clientKey": "67da50b8-3112-40d2-9443-a11064176c60",
+ "clientKey": "00000000-0000-0000-0000-000000000000",
  "name": "Reopen handling",
  "state": "DISABLED",
  "description": "",
@@ -99,7 +99,7 @@
  "collaborators": [],
  "billingType": "NORMAL",
  "idUuid": "019f8375-8080-72c3-8723-2b555716efe1",
- "partitionId": "67da50b8-3112-40d2-9443-a11064176c60",
+ "partitionId": "00000000-0000-0000-0000-000000000000",
  "checksum": {
   "version": 3,
   "value": "28c20ca17f94c10540a018b2fa59de9ca54e16790a554657fee1195345209826"
