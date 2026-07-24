@@ -29,7 +29,11 @@ export function agentHandoffs(records) {
   const out = {};
   for (const r of records || []) {
     let prev = "Build";
-    for (const ev of (r.timeline || [])) {
+    // Status hops ONLY. `agentOf` falls back to "Build" for anything it doesn't recognise, so
+    // an unfiltered walk turns every assignee/resolution/link change into a phantom handoff
+    // into Build. SFC changelogs happen to be status-only today, which is why this never
+    // showed — it is filtered here so it stays true when they aren't.
+    for (const ev of (r.timeline || []).filter((x) => x.field === "status")) {
       const ag = agentOf(STATUS_STAGE[ev.to] || ev.to);
       if (ag && ag !== prev) { const k = prev + "→" + ag; out[k] = (out[k] || 0) + 1; prev = ag; }
     }
