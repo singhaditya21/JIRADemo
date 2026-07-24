@@ -1,6 +1,6 @@
 # Field schema, permission scheme and automation rules
 
-Live reference for the `OPS` project on `singhaditya21.atlassian.net`. Field IDs are
+Live reference for the `OPS` project on `your-site.atlassian.net`. Field IDs are
 real — built by `jira_config/build.py` and verified against the instance on 2026-07-20.
 
 ---

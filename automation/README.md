@@ -1,6 +1,6 @@
 # Automation rules
 
-**All seven rules are live on `singhaditya21.atlassian.net` (project OPS) and ENABLED**
+**All seven rules are live on `your-site.atlassian.net` (project OPS) and ENABLED**
 (verified 2026-07-21, `CLAIMS.md` #101). They are created and reconciled by
 [`build_rules.py`](build_rules.py); run it to rebuild them on any instance.
 
@@ -80,7 +80,7 @@ truth for what is actually on the instance; the specs are documentation.
 
 ## Field IDs
 
-Live on `singhaditya21.atlassian.net` — full list in [SCHEMA.md](../SCHEMA.md).
+Live on `your-site.atlassian.net` — full list in [SCHEMA.md](../SCHEMA.md).
 
 | Field | ID |
 |---|---|

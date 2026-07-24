@@ -29,27 +29,27 @@ Design and build approach for an L1/L2 IT support tower ticket management system
 
 ## The live app
 
-**Two** complete towers are built and populated on `singhaditya21.atlassian.net`, from the
+**Two** complete towers are built and populated on `your-site.atlassian.net`, from the
 same design. Counts below were read live on 2026-07-20. Full detail, every URL and the
 demo recommendation are in **[CONTROL-TOWER.md](CONTROL-TOWER.md)**.
 
 ### `OPS` — Jira Software · **demo this one**
 
-- **Project:** [OPS](https://singhaditya21.atlassian.net/browse/OPS) — company-managed, 20 custom fields, 11 statuses, 13-transition workflow
+- **Project:** [OPS](https://your-site.atlassian.net/browse/OPS) — company-managed, 20 custom fields, 11 statuses, 13-transition workflow
 - **Four ITSM issue types**, **P1–P4 priority scheme** derived from Impact × Urgency and set on the real Priority field
 - **420 seeded tickets** across 6 towers — 171 escalated with complete gate evidence, 82 SLA-breached, 15 reopened, 62 open
 - **156 tickets carry the full escalation trail in their history** — `New → Triage → In Progress L1 → Escalated to L2 → In Progress L2 → Resolved → Closed`. This is the demo; open `OPS-2298`, `OPS-2306` or `OPS-2309`.
 - **79 escalations found no KB article** (46%) — the measured closing argument
-- **[20 saved filters](https://singhaditya21.atlassian.net/issues/?filter=10035)** — per-tower L2 queues, SLA at-risk views, KB-gap and shadow-support queues
-- **[Dashboard 10001](https://singhaditya21.atlassian.net/jira/dashboards/10001)** — 12 gadgets, all bound to named filters (repaired, CLAIMS #53). All 358 Closed tickets now carry a proper resolution (#54).
+- **[20 saved filters](https://your-site.atlassian.net/issues/?filter=10035)** — per-tower L2 queues, SLA at-risk views, KB-gap and shadow-support queues
+- **[Dashboard 10001](https://your-site.atlassian.net/jira/dashboards/10001)** — 12 gadgets, all bound to named filters (repaired, CLAIMS #53). All 358 Closed tickets now carry a proper resolution (#54).
 
 ### `ITSM` — Jira Service Management · the "what's next"
 
 JSM was provisioned mid-build, so the tower was rebuilt as a service project — **reusing**
 every global object rather than duplicating it (same 20 fields, same priority scheme).
 
-- **Project:** [ITSM](https://singhaditya21.atlassian.net/browse/ITSM) — service desk 8, ITIL template, 8 issue types
-- **[19 agent queues](https://singhaditya21.atlassian.net/jira/servicedesk/projects/ITSM/queues)**, all non-empty · **[dashboard 10035](https://singhaditya21.atlassian.net/jira/dashboards/10035)** with 11 bound gadgets · **[customer portal](https://singhaditya21.atlassian.net/servicedesk/customer/portal/8)** with 17 request types
+- **Project:** [ITSM](https://your-site.atlassian.net/browse/ITSM) — service desk 8, ITIL template, 8 issue types
+- **[19 agent queues](https://your-site.atlassian.net/jira/servicedesk/projects/ITSM/queues)**, all non-empty · **[dashboard 10035](https://your-site.atlassian.net/jira/dashboards/10035)** with 11 bound gadgets · **[customer portal](https://your-site.atlassian.net/servicedesk/customer/portal/8)** with 17 request types
 - **420 seeded tickets** — Resolution SLA Met 235 / Breached 68 / In progress 57 / Paused 48
 - ⚠️ **The escalation story does not work here.** `Escalated` exists only in the Service Request workflows, so an escalated Incident's History contradicts its own fields. **Demo escalation from `OPS`.** Also avoid the native SLA panel and the approval gate — CLAIMS #49, #50, #51b.
 
@@ -142,7 +142,7 @@ The gate is **not** universal: a second transition, `Escalate — major incident
 
 ## Instance state as of 2026-07-20
 
-Verified against `singhaditya21.atlassian.net`:
+Verified against `your-site.atlassian.net`:
 
 - **Jira Service Management is now provisioned** (`/rest/servicedeskapi/info` → `isLicensedForUse: true`). Earlier in the day it was not, and that claim survives as CLAIMS #3 marked SUPERSEDED. The `ITSM` project, its portal, request types, agent queues and native SLA fields all exist as a result.
 - Structural config *is* REST-scriptable (fields, screens, statuses, workflows, schemes, permissions, filters, dashboards and gadget binding all return 200). So are JSM **SLA calendars**, **request type create/delete**, and — via undocumented internal endpoints — **agent queue create and update** and **all seven automation rules** (created and *enabled* over the Automation internal API; the *public* `/rest/api/3/automation/rules` still 404s). See `automation/README.md`.

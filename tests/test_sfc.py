@@ -360,3 +360,36 @@ def test_baseline_and_scoreboard_speak_the_same_units():
     _m, recs = S.build(64, 180, NOW, span=180)
     point = X._sfc_point(recs, NOW, NOW.isoformat())
     assert set(("deploy_success_pct", "healthy_pct", "lead_time_d", "volume")) <= set(point)
+
+
+# ---------------------------------------------------------------------------
+# tenant anonymisation — the published artifact must not name whose Jira it is
+# ---------------------------------------------------------------------------
+
+def test_anonymise_flag_reads_the_env(monkeypatch):
+    from app import export_pages as E
+    for on in ("1", "true", "TRUE", "yes"):
+        monkeypatch.setenv("DEMO_ANONYMISE", on)
+        assert E.anonymised() is True
+    for off in ("", "0", "false", "no"):
+        monkeypatch.setenv("DEMO_ANONYMISE", off)
+        assert E.anonymised() is False
+    monkeypatch.delenv("DEMO_ANONYMISE", raising=False)
+    assert E.anonymised() is False          # absent == off, so local dev keeps real links
+
+
+def test_strip_tenant_removes_site_and_record_urls():
+    from app import export_pages as E
+    payload = {"project": "OPS", "site": "https://acme.atlassian.net", "volume": 3}
+    records = [{"key": "OPS-1", "url": "https://acme.atlassian.net/browse/OPS-1"}]
+    E.strip_tenant(payload, records)
+    assert "site" not in payload            # drawer hides the JQL link when absent
+    assert records[0]["url"] is None        # record list renders the key as plain text
+    assert records[0]["key"] == "OPS-1"     # the key itself must survive
+
+
+def test_preview_seed_never_bakes_a_real_tenant(monkeypatch):
+    """The preview fallback used to hardcode one tenant into every browse URL."""
+    monkeypatch.delenv("JIRA_SITE", raising=False)
+    _m, recs = S.build(4, 90, NOW)
+    assert all("atlassian.net" not in (r["url"] or "") for r in recs)

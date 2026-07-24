@@ -55,7 +55,17 @@ jobs:
           # (Analyst names on this instance are synthetic, but the control belongs ON for a
           # public host — and the SFC lens now honours it too.)
           PSEUDONYMISE_ANALYSTS: "1"
+          # Strip the Jira tenant from the published artifact. Every record carried
+          # https://<tenant>.atlassian.net/browse/KEY and the model carried `site`, so the
+          # hosting org's identity shipped in world-readable JSON. The frontend degrades
+          # (no url -> the key renders as plain text, never a dead link).
+          DEMO_ANONYMISE: "1"
         run: python3 -m app.export_pages   # stdlib only, no pip install needed
+
+      - name: Assert the artifact carries no identity
+        # A HARD gate, not a warning: if an identifying string survived the bake, do not
+        # publish. Better a failed deploy than a presented site naming whose tenant it is.
+        run: python3 scripts/check_no_identity.py webapp/public/data
 
       - name: Alert on off-target KPIs
         # Reads the just-baked scoreboard (no Jira call, no secret) and writes every KPI

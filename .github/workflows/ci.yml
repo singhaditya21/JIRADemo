@@ -30,6 +30,10 @@ jobs:
           python-version: "3.12"
       - run: pip install pytest
       - run: python3 -m pytest -q
+      - name: Anonymised bake carries no identity
+        run: |
+          DEMO_ANONYMISE=1 python3 -m app.sfc_seed --out /tmp/anon --n 20
+          python3 scripts/check_no_identity.py /tmp/anon
 
   frontend:
     runs-on: ubuntu-latest

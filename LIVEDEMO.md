@@ -6,7 +6,7 @@ How to get from the plan to something you can actually click through in front of
 
 ## 1. What is genuinely scriptable — verified, not assumed
 
-Probed against `singhaditya21.atlassian.net` on 2026-07-20:
+Probed against `your-site.atlassian.net` on 2026-07-20:
 
 | Capability | Endpoint | Status |
 |---|---|---|

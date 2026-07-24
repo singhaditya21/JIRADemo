@@ -627,6 +627,13 @@ def fetch_sfc_records(j, now=None):
             requests.append(it)
     records = [_request_record(it, F, j.site, deploys_by_parent, now) for it in requests]
 
+    # Tenant anonymisation for a shared build — see app.export_pages.anonymised(). The URL is
+    # the only field carrying the Jira host; dropping it makes the artifact host-neutral and
+    # the drawer renders the key as plain text instead of a dead link.
+    if os.environ.get("DEMO_ANONYMISE", "").lower() in ("1", "true", "yes"):
+        for r in records:
+            r["url"] = None
+
     # PRIVACY: app/export_pages honours PSEUDONYMISE_ANALYSTS for OPS/ITSM, but the SFC bake
     # was writing the named reviewer (l2_analyst) verbatim into a world-readable artifact —
     # the lens bypassed the repo's own control. Apply the same masking here.

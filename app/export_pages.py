@@ -63,6 +63,28 @@ def _jsonable(model):
     return json.loads(json.dumps(model, default=str))  # datetimes -> str, once
 
 
+# --- Tenant anonymisation for a shared/presented build --------------------------------
+# The deployed artifact carried the hosting organisation's identity in two places: every
+# record's `url` (https://<tenant>.atlassian.net/browse/KEY) and the model's `site`, used
+# for the drawer's JQL deep-link. Both ship in world-readable JSON, so anyone presenting or
+# inspecting the site saw whose Jira it was — regardless of who was demoing it.
+#
+# DEMO_ANONYMISE=1 omits both. It is a BAKE-side switch on purpose: the frontend needs no
+# flag of its own, it simply degrades when the field is absent (a record with no url renders
+# its key as plain text rather than a dead anchor). So local dev keeps working deep-links
+# while the published build carries no tenant at all.
+def anonymised():
+    return os.environ.get("DEMO_ANONYMISE", "").lower() in ("1", "true", "yes")
+
+
+def strip_tenant(payload, records):
+    """Remove the Jira host from a model + its records, in place. Returns the records."""
+    payload.pop("site", None)
+    for r in records:
+        r["url"] = None
+    return records
+
+
 # --- Modelled CSAT proxy -----------------------------------------------------
 # This instance has NO satisfaction survey — there is no CSAT field on any ticket.
 # Rather than fabricate a Jira field and pass invented numbers off as real customer
@@ -226,6 +248,8 @@ def export(out_dir, day_windows):
                     for p in (model.get("analysts", {}) or {}).get("people", []):
                         p["analyst"] = alias.get(p.get("analyst"), p.get("analyst"))
                 payload = _jsonable(model)
+                if anonymised():
+                    payload.pop("site", None)
                 name = f"{project}-{days}.json"
                 (out_dir / name).write_text(json.dumps(payload, separators=(",", ":")))
                 index["files"][f"{project}-{days}"] = name
@@ -242,6 +266,9 @@ def export(out_dir, day_windows):
             index.setdefault("baseline_files", {})[project] = f"{project}-baseline.json"
             # one record file per project (all issues); the client windows it per view
             records = [_record(i, alias) for i in st.issues]
+            if anonymised():
+                for r in records:
+                    r["url"] = None
             rname = f"{project}-records.json"
             (out_dir / rname).write_text(json.dumps(
                 {"project": project, "generated_at": generated_at, "count": len(records),
