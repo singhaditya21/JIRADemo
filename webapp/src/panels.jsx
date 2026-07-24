@@ -1156,16 +1156,23 @@ export function SFCKpi({ model, records, open }) {
     <div className="panel span-full">
       <h2>Delivery scoreboard</h2>
       <p className="why">{rows.length} Salesforce config requests in window. Each tile carries its numerator/denominator, target and verdict — click one to see the records behind it. {records ? "" : "Loading…"}</p>
-      <div className="kpis">
+      {/* Same classes as KpiStrip above — .kpi-strip/.kpi/.lab/.val/.sub. This panel was
+          written against kpis/kpi-k/kpi-v/kpi-note, none of which exist in styles.css, so the
+          tiles rendered as unstyled stacked rows and the verdict pill stretched full-width
+          (it was a direct child of the .kpi grid instead of sitting inside the flex .sub). */}
+      <div className="kpi-strip">
         {SFC_TILES.map((t) => {
           const m = sb[t.k] || {};
           const val = m.value == null ? "—" : (t.unit === "%" ? pct(m.value) : f1(m.value) + "d");
+          const drill = { type: "records", label: t.lab, pred: t.pred };
           return (
-            <div key={t.k} className="kpi" onClick={() => open && open({ type: "records", label: t.lab, pred: t.pred })} style={{ cursor: open ? "pointer" : "default" }}>
-              <span className="kpi-k">{t.lab}</span>
-              <span className="kpi-v tnum">{val}</span>
-              <span className="kpi-note">{t.note}{m.num != null && m.den != null ? ` · ${m.num}/${m.den}` : ""}</span>
-              <Verdict m={m} />
+            <div key={t.k} className={"kpi" + (open ? " clickable" : "")}
+              role={open ? "button" : undefined} tabIndex={open ? 0 : undefined}
+              onClick={() => open && open(drill)}
+              onKeyDown={(e) => open && (e.key === "Enter" || e.key === " ") && open(drill)}>
+              <span className="lab">{t.lab}</span>
+              <span className="val tnum">{val}</span>
+              <span className="sub">{t.note}{m.num != null && m.den != null ? ` · ${m.num}/${m.den}` : ""} <Verdict m={m} /></span>
             </div>
           );
         })}
